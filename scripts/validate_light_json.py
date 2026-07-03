@@ -3,9 +3,15 @@
 
 from __future__ import annotations
 
-from blender_nrp.core.lights import LightRig
 import argparse
+from pathlib import Path
 import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from blender_nrp.core.lights import LightRig
 
 
 def main() -> int:
@@ -23,4 +29,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
