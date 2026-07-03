@@ -1,0 +1,12 @@
+{
+  "asset_policy": "Do not commit downloaded production files.",
+  "license_notes": "Review Blender Studio project license terms before use.",
+  "project": "Sprite Fright",
+  "recommended_artifacts": {
+    "cache": "output/sprite_fright/path_cache.npz",
+    "metadata": "output/sprite_fright/metadata.json",
+    "model": "output/sprite_fright/model.pt"
+  },
+  "upstream_url": "https://studio.blender.org/projects/sprite-fright/"
+}
+

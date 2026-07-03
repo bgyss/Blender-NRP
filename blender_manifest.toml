@@ -1,0 +1,11 @@
+schema_version = "1.0.0"
+id = "blender_nrp"
+version = "0.1.0"
+name = "Blender-NRP"
+tagline = "Bake and relight Neural Render Proxy scenes inside Blender"
+maintainer = "Blender-NRP contributors"
+type = "add-on"
+blender_version_min = "4.2.0"
+license = ["SPDX:MIT"]
+tags = ["Lighting", "Render", "Pipeline"]
+
