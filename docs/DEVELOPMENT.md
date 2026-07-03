@@ -21,7 +21,15 @@ Use three levels of validation as the project grows:
 2. Blender background-mode scripts for fixture bake and relight flows.
 3. Manual Blender UI checks for installation, panels, object creation, preview images, and import/export.
 
-The current scaffold includes level 1 tests and placeholder scripts for level 2.
+Run the full Blender operator smoke test with:
+
+```bash
+blender --background --factory-startup --python-exit-code 7 --python tests/blender_smoke.py
+```
+
+The smoke test creates a tiny scene, registers the add-on, runs the bake, validate,
+train, load, create-light, preview, export, import, and optimize operators, then
+checks the generated artifacts under `build/blender_smoke/`.
 
 ## Packaging
 
@@ -47,4 +55,3 @@ The add-on should degrade gracefully when optional ML dependencies are unavailab
 - training and proxy inference should report missing PyTorch clearly,
 - Blender scene import/export should not require ComfyUI to be running,
 - ComfyUI compatibility should be verified through files, not through a mandatory live server.
-
