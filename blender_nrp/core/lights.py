@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import json
 
 
 def _vec3(value: Any, *, name: str) -> tuple[float, float, float]:
@@ -28,7 +28,7 @@ class SphereLight:
             raise ValueError("sphere light intensity must be non-negative")
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SphereLight":
+    def from_dict(cls, data: dict[str, Any]) -> SphereLight:
         if data.get("type") != "sphere":
             raise ValueError(f"unsupported light type: {data.get('type')!r}")
         for field in ("position", "radius", "color", "intensity"):
@@ -63,7 +63,7 @@ class LightRig:
             raise ValueError("light rig must contain at least one light")
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "LightRig":
+    def from_dict(cls, data: dict[str, Any]) -> LightRig:
         lights = data.get("lights")
         if not isinstance(lights, list):
             raise ValueError("light rig JSON must contain a lights list")
@@ -83,7 +83,7 @@ class LightRig:
         }
 
     @classmethod
-    def load(cls, path: str | Path) -> "LightRig":
+    def load(cls, path: str | Path) -> LightRig:
         with Path(path).open("r", encoding="utf-8") as handle:
             return cls.from_dict(json.load(handle))
 

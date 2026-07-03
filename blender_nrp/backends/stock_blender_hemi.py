@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -17,27 +17,36 @@ from .interface import BakeResult, BakeSettings
 
 id = "stock_blender_hemi"
 label = "Stock Blender Hemisphere"
-SCHEMA_VERSION = "1.0"
+BACKEND_VERSION = "1.0"
+CACHE_SCHEMA_VERSION = 2
 
 
-def _hemisphere_dirs(normal: np.ndarray, count: int, seed: int) -> np.ndarray:
-    normal = normal / max(float(np.linalg.norm(normal)), 1e-8)
-    up = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-    if abs(float(np.dot(normal, up))) > 0.95:
-        up = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    tangent = np.cross(up, normal)
-    tangent /= max(float(np.linalg.norm(tangent)), 1e-8)
-    bitangent = np.cross(normal, tangent)
-    dirs = []
-    offset = (seed % 997) / 997.0
+def _hemisphere_dirs_batch(normals: np.ndarray, count: int, seeds: np.ndarray) -> np.ndarray:
+    """Deterministic normal-oriented hemisphere directions for a batch of pixels.
+
+    normals (P, 3), seeds (P,) per-pixel integer seeds. Returns (P, count, 3) unit dirs.
+    """
+    normals = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-8)
+    up = np.tile(np.array([0.0, 0.0, 1.0], dtype=np.float64), (normals.shape[0], 1))
+    flip = np.abs(normals[:, 2]) > 0.95
+    up[flip] = [1.0, 0.0, 0.0]
+    tangent = np.cross(up, normals)
+    tangent /= np.maximum(np.linalg.norm(tangent, axis=1, keepdims=True), 1e-8)
+    bitangent = np.cross(normals, tangent)
+
+    index = np.arange(count, dtype=np.float64)
+    u = (index + 0.5) / count
+    offset = (seeds % 997).astype(np.float64) / 997.0
     golden = math.pi * (3.0 - math.sqrt(5.0))
-    for index in range(count):
-        u = (index + 0.5) / count
-        phi = (index + offset) * golden
-        r = math.sqrt(max(0.0, 1.0 - u * u))
-        local = tangent * (math.cos(phi) * r) + bitangent * (math.sin(phi) * r) + normal * u
-        dirs.append(local / max(float(np.linalg.norm(local)), 1e-8))
-    return np.asarray(dirs, dtype=np.float32)
+    phi = (index[None, :] + offset[:, None]) * golden
+    r = np.sqrt(np.maximum(0.0, 1.0 - u * u))
+    local = (
+        tangent[:, None, :] * (np.cos(phi) * r[None, :])[..., None]
+        + bitangent[:, None, :] * (np.sin(phi) * r[None, :])[..., None]
+        + normals[:, None, :] * u[None, :, None]
+    )
+    local /= np.maximum(np.linalg.norm(local, axis=2, keepdims=True), 1e-8)
+    return local
 
 
 def _write_outputs(
@@ -51,7 +60,15 @@ def _write_outputs(
     output_dir = Path(settings.output_dir) / settings.scene_id
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_path = output_dir / "path_cache.npz"
-    np.savez_compressed(cache_path, **arrays)
+    # width/height/schema_version are required by the nrp reference loader
+    # (nrp.path_cache.PathCache.load); the arrays alone are not enough.
+    np.savez_compressed(
+        cache_path,
+        schema_version=CACHE_SCHEMA_VERSION,
+        width=settings.width,
+        height=settings.height,
+        **arrays,
+    )
 
     finite_positions = arrays["position"].reshape(-1, 3)
     valid = arrays["n_paths"] > 0
@@ -90,8 +107,8 @@ def _write_outputs(
         "scene_id": settings.scene_id,
         "camera_id": camera_id,
         "backend": id,
-        "backend_version": SCHEMA_VERSION,
-        "cache_schema_version": SCHEMA_VERSION,
+        "backend_version": BACKEND_VERSION,
+        "cache_schema_version": CACHE_SCHEMA_VERSION,
         "resolution": [settings.width, settings.height],
         "segment_count": validation.segment_count,
         "warnings": list(warnings),
@@ -148,34 +165,28 @@ def _segments_from_hits(
     settings: BakeSettings,
 ) -> dict[str, np.ndarray]:
     pixels = settings.width * settings.height
+    count = settings.segment_count
     n_paths = np.zeros(pixels, dtype=np.int64)
-    seg_pixel: list[int] = []
-    seg_origin: list[np.ndarray] = []
-    seg_dir: list[np.ndarray] = []
-    seg_tmax: list[float] = []
-    seg_throughput: list[np.ndarray] = []
-    flat_pos = position.reshape(-1, 3)
-    flat_normal = normal.reshape(-1, 3)
-    flat_albedo = albedo.reshape(-1, 3)
-    for pixel in range(pixels):
-        if not hit_mask[pixel]:
-            continue
-        dirs = _hemisphere_dirs(flat_normal[pixel], settings.segment_count, settings.seed + pixel)
-        n_paths[pixel] = settings.segment_count
-        for direction in dirs:
-            cosine = max(float(np.dot(direction, flat_normal[pixel])), 0.0)
-            seg_pixel.append(pixel)
-            seg_origin.append(flat_pos[pixel] + flat_normal[pixel] * 1e-4)
-            seg_dir.append(direction)
-            seg_tmax.append(settings.max_segment_distance)
-            seg_throughput.append(flat_albedo[pixel] * (cosine / max(settings.segment_count, 1)))
+    flat_pos = position.reshape(-1, 3).astype(np.float64)
+    flat_normal = normal.reshape(-1, 3).astype(np.float64)
+    flat_albedo = albedo.reshape(-1, 3).astype(np.float64)
+
+    hit_idx = np.flatnonzero(hit_mask)
+    n_paths[hit_idx] = count
+    hit_normals = flat_normal[hit_idx]
+    dirs = _hemisphere_dirs_batch(hit_normals, count, settings.seed + hit_idx)
+    # Throughput carries only albedo * cosine; per-pixel averaging is n_paths'
+    # job at gather time (matches the nrp reference GATHERLIGHT normalization).
+    cosine = np.maximum(np.einsum("pkj,pj->pk", dirs, hit_normals), 0.0)
+    origins = flat_pos[hit_idx] + hit_normals * 1e-4
+    throughput = flat_albedo[hit_idx, None, :] * cosine[..., None]
     return {
         "n_paths": n_paths,
-        "seg_pixel": np.asarray(seg_pixel, dtype=np.int64),
-        "seg_origin": np.asarray(seg_origin, dtype=np.float32).reshape((-1, 3)),
-        "seg_dir": np.asarray(seg_dir, dtype=np.float32).reshape((-1, 3)),
-        "seg_tmax": np.asarray(seg_tmax, dtype=np.float32),
-        "seg_throughput": np.asarray(seg_throughput, dtype=np.float32).reshape((-1, 3)),
+        "seg_pixel": np.repeat(hit_idx, count).astype(np.int64),
+        "seg_origin": np.repeat(origins, count, axis=0).astype(np.float32),
+        "seg_dir": dirs.reshape((-1, 3)).astype(np.float32),
+        "seg_tmax": np.full(hit_idx.size * count, settings.max_segment_distance, dtype=np.float32),
+        "seg_throughput": throughput.reshape((-1, 3)).astype(np.float32),
         "albedo": albedo.astype(np.float32),
         "normal": normal.astype(np.float32),
         "depth": depth.astype(np.float32),

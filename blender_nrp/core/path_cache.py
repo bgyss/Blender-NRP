@@ -35,6 +35,16 @@ class CacheValidationReport:
 
 def validate_npz(path: str | Path) -> CacheValidationReport:
     with np.load(path) as npz:
+        if "packed_layout" in npz.files:
+            return CacheValidationReport(
+                0,
+                0,
+                0,
+                (
+                    "cache uses the nrp packed layout (fp16 + rgb9e5); "
+                    "load it with nrp.path_cache.PathCache and re-save uncompressed",
+                ),
+            )
         missing = sorted(REQUIRED_KEYS - set(npz.files))
         if missing:
             return CacheValidationReport(0, 0, 0, (f"missing arrays: {', '.join(missing)}",))

@@ -91,7 +91,9 @@ examples/scene_manifests/   production scene manifests: upstream URLs, license n
 The add-on must stay wire-compatible with `nrp` and `ComfyUI-NeuralRenderProxy`:
 
 - `path_cache.npz`: `n_paths`, `seg_pixel`, `seg_origin`, `seg_dir`, `seg_tmax`, `seg_throughput`,
-  `albedo`, `normal`, `depth`, `position`.
+  `albedo`, `normal`, `depth`, `position`, plus the scalar keys `schema_version`, `width`, `height`
+  required by `nrp`'s `PathCache.load`. `seg_throughput` is raw (not pre-averaged); per-pixel
+  averaging divides by `n_paths` at gather time, matching `nrp` main's GATHERLIGHT.
 - `metadata.json`: fixed-scene, fixed-camera, sphere-light metadata.
 - sphere-light rig JSON: `scene_id`, `camera_id`, `coordinate_system`, `lights`.
 

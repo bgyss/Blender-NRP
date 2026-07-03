@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -16,7 +16,6 @@ from blender_nrp.backends.stock_blender_hemi import bake
 from blender_nrp.core.gather import write_relight_preview
 from blender_nrp.core.lights import LightRig, SphereLight
 from blender_nrp.core.proxy import train_basic_proxy
-
 
 SCENE_ID = "fixture_room_001"
 

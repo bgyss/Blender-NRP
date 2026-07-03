@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import struct
 import zlib
+from pathlib import Path
 
 import numpy as np
 

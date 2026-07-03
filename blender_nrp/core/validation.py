@@ -8,7 +8,10 @@ from .metadata import NRPMetadata
 from .path_cache import CacheValidationReport, validate_npz
 
 
-def validate_cache_bundle(cache_path: str | Path, metadata_path: str | Path) -> CacheValidationReport:
+def validate_cache_bundle(
+    cache_path: str | Path,
+    metadata_path: str | Path,
+) -> CacheValidationReport:
     metadata = NRPMetadata.load(metadata_path)
     report = validate_npz(cache_path)
     if not report.ok:

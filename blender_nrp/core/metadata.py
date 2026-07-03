@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-import json
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,7 @@ class NRPMetadata:
             raise ValueError("model dimensions must be positive")
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NRPMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> NRPMetadata:
         required = {
             "scene_id",
             "camera_id",
@@ -60,7 +60,7 @@ class NRPMetadata:
         return payload
 
     @classmethod
-    def load(cls, path: str | Path) -> "NRPMetadata":
+    def load(cls, path: str | Path) -> NRPMetadata:
         with Path(path).open("r", encoding="utf-8") as handle:
             return cls.from_dict(json.load(handle))
 

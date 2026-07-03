@@ -13,8 +13,7 @@ if bpy is not None:
     from blender_nrp.backends.interface import BakeSettings
     from blender_nrp.backends.stock_blender_hemi import bake
 
-    from ._helpers import cancel_with_status
-    from ._helpers import finish_with_status
+    from ._helpers import cancel_with_status, finish_with_status
 
     class BLENDER_NRP_OT_bake_cache(bpy.types.Operator):
         bl_idname = "blender_nrp.bake_cache"

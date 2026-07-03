@@ -29,3 +29,8 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# Scripts and the Blender smoke test bootstrap sys.path before importing the package.
+"scripts/*" = ["E402"]
+"tests/blender_smoke.py" = ["E402"]
+

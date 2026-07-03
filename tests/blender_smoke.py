@@ -11,21 +11,19 @@ run in CI or on a local workstation without opening Blender's UI.
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import bpy
 from mathutils import Vector
-
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import blender_nrp
 from blender_nrp.core.lights import LightRig
 from blender_nrp.core.validation import validate_cache_bundle
-import blender_nrp
-
 
 SCENE_ID = "blender_smoke_001"
 
