@@ -12,6 +12,8 @@ The first implementation goal is functional correctness, not real-time performan
 
 The detailed build goal lives in [docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md](docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md).
 
+For installation, usage, and a quick tutorial, read [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+
 ## Repository Layout
 
 ```text
