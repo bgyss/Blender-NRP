@@ -1,4 +1,4 @@
-"""Relight preview operators."""
+"""Relight preview and NRP light-creation operators."""
 
 from __future__ import annotations
 
@@ -8,12 +8,19 @@ except ModuleNotFoundError:  # pragma: no cover
     bpy = None
 
 if bpy is not None:
-    from pathlib import Path
-
-    from blender_nrp.core.gather import write_relight_preview
-    from blender_nrp.core.lights import LightRig, SphereLight
+    from blender_nrp import preview
+    from blender_nrp.core.coords import BLENDER_Z_UP
 
     from ._helpers import cancel_with_status, finish_with_status
+
+    def _stamp_light_props(context: bpy.types.Context, obj: bpy.types.Object) -> None:
+        obj["nrp_scene_id"] = context.scene.blender_nrp.scene_id
+        obj["nrp_camera_id"] = (
+            context.scene.blender_nrp.camera.name if context.scene.blender_nrp.camera else ""
+        )
+        obj["nrp_coordinate_system"] = BLENDER_Z_UP
+        obj["nrp_color"] = (1.0, 1.0, 1.0)
+        obj["nrp_intensity"] = 1.0
 
     class BLENDER_NRP_OT_create_sphere_light(bpy.types.Operator):
         bl_idname = "blender_nrp.create_sphere_light"
@@ -25,52 +32,52 @@ if bpy is not None:
             obj = context.object
             obj.name = "NRP_Sphere_001"
             obj["nrp_light_type"] = "sphere"
-            obj["nrp_scene_id"] = context.scene.blender_nrp.scene_id
-            obj["nrp_camera_id"] = (
-                context.scene.blender_nrp.camera.name if context.scene.blender_nrp.camera else ""
-            )
-            obj["nrp_coordinate_system"] = "blender_z_up"
             obj["nrp_radius"] = 0.25
-            obj["nrp_color"] = (1.0, 1.0, 1.0)
-            obj["nrp_intensity"] = 1.0
+            _stamp_light_props(context, obj)
             return finish_with_status(context, "Created NRP sphere light")
+
+    class BLENDER_NRP_OT_create_quad_light(bpy.types.Operator):
+        bl_idname = "blender_nrp.create_quad_light"
+        bl_label = "Create NRP Quad Light"
+        bl_description = (
+            "Create a visible NRP rectangle emitter (its local +Z axis is the "
+            "emission normal — rotate the object to aim it)"
+        )
+
+        def execute(self, context: bpy.types.Context) -> set[str]:
+            bpy.ops.mesh.primitive_plane_add(size=1.0)
+            obj = context.object
+            obj.name = "NRP_Quad_001"
+            obj["nrp_light_type"] = "quad"
+            obj["nrp_width"] = 1.0
+            obj["nrp_height"] = 1.0
+            _stamp_light_props(context, obj)
+            return finish_with_status(context, "Created NRP quad light")
 
     class BLENDER_NRP_OT_relight_preview(bpy.types.Operator):
         bl_idname = "blender_nrp.relight_preview"
         bl_label = "Preview Relight"
-        bl_description = "Preview fixed-camera relighting from the active proxy"
+        bl_description = (
+            "Relight the fixed camera view into the 'NRP Relight Preview' image "
+            "(uses the loaded proxy when available, exact cache gather otherwise)"
+        )
 
         def execute(self, context: bpy.types.Context) -> set[str]:
-            settings = context.scene.blender_nrp
-            if not settings.cache_path:
-                return cancel_with_status(context, "No cache path selected")
-            lights = []
-            for obj in context.scene.objects:
-                if obj.get("nrp_light_type") == "sphere":
-                    lights.append(
-                        SphereLight(
-                            position=tuple(float(v) for v in obj.location),
-                            radius=float(obj.get("nrp_radius", 0.25)),
-                            color=tuple(float(v) for v in obj.get("nrp_color", (1.0, 1.0, 1.0))),
-                            intensity=float(obj.get("nrp_intensity", 1.0)),
-                        )
-                    )
-            if not lights:
-                return cancel_with_status(context, "No NRP sphere lights in scene")
-            cache_path = Path(bpy.path.abspath(settings.cache_path))
-            target = cache_path.parent / "relight_preview.png"
-            rig = LightRig(tuple(lights), scene_id=settings.scene_id)
-            try:
-                write_relight_preview(cache_path, rig, target)
-            except Exception as exc:
-                return cancel_with_status(context, f"Relight preview failed: {exc}")
-            return finish_with_status(context, f"Wrote {target}")
+            ok, message = preview.update_preview(context)
+            if not ok:
+                return cancel_with_status(context, message)
+            return finish_with_status(context, message)
 
 
 CLASSES = (
-    BLENDER_NRP_OT_create_sphere_light,
-    BLENDER_NRP_OT_relight_preview,
-) if bpy is not None else ()
+    (
+        BLENDER_NRP_OT_create_sphere_light,
+        BLENDER_NRP_OT_create_quad_light,
+        BLENDER_NRP_OT_relight_preview,
+    )
+    if bpy is not None
+    else ()
+)
 
 
 def register() -> None:

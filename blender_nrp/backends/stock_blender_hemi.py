@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import math
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from blender_nrp.core.images import depth_to_rgb, normal_to_rgb, write_png_rgb
-from blender_nrp.core.metadata import NRPMetadata
-from blender_nrp.core.path_cache import validate_arrays
-
+from ._output import write_bake_outputs
 from .interface import BakeResult, BakeSettings
 
 id = "stock_blender_hemi"
@@ -57,63 +52,13 @@ def _write_outputs(
     warnings: tuple[str, ...],
     blender_file_name: str | None,
 ) -> BakeResult:
-    output_dir = Path(settings.output_dir) / settings.scene_id
-    output_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = output_dir / "path_cache.npz"
-    # width/height/schema_version are required by the nrp reference loader
-    # (nrp.path_cache.PathCache.load); the arrays alone are not enough.
-    np.savez_compressed(
-        cache_path,
-        schema_version=CACHE_SCHEMA_VERSION,
-        width=settings.width,
-        height=settings.height,
-        **arrays,
-    )
-
-    finite_positions = arrays["position"].reshape(-1, 3)
-    valid = arrays["n_paths"] > 0
-    if np.any(valid):
-        bbox_min = finite_positions[valid].min(axis=0).astype(float).tolist()
-        bbox_max = finite_positions[valid].max(axis=0).astype(float).tolist()
-    else:
-        bbox_min = [0.0, 0.0, 0.0]
-        bbox_max = [0.0, 0.0, 0.0]
-    metadata = NRPMetadata(
-        scene_id=settings.scene_id,
+    return write_bake_outputs(
+        arrays,
+        settings,
         camera_id=camera_id,
-        resolution=(settings.width, settings.height),
-        light_type="sphere",
-        aux_features=["albedo", "normal", "depth"],
-        bbox_min=bbox_min,
-        bbox_max=bbox_max,
-        model_width=settings.model_width,
-        model_depth=settings.model_depth,
-    )
-    metadata_path = output_dir / "metadata.json"
-    metadata.save(metadata_path)
-
-    preview_paths = {
-        "albedo": output_dir / "preview_albedo.png",
-        "normal": output_dir / "preview_normal.png",
-        "depth": output_dir / "preview_depth.png",
-    }
-    write_png_rgb(preview_paths["albedo"], arrays["albedo"])
-    write_png_rgb(preview_paths["normal"], normal_to_rgb(arrays["normal"]))
-    write_png_rgb(preview_paths["depth"], depth_to_rgb(arrays["depth"]))
-
-    validation = validate_arrays(arrays)
-    bake_report = {
-        "ok": validation.ok,
-        "scene_id": settings.scene_id,
-        "camera_id": camera_id,
-        "backend": id,
-        "backend_version": BACKEND_VERSION,
-        "cache_schema_version": CACHE_SCHEMA_VERSION,
-        "resolution": [settings.width, settings.height],
-        "segment_count": validation.segment_count,
-        "warnings": list(warnings),
-        "validation_errors": list(validation.errors),
-        "approximation_limits": [
+        backend_id=id,
+        backend_version=BACKEND_VERSION,
+        approximation_limits=[
             "Uses one first-hit camera ray per pixel.",
             (
                 "Stores deterministic normal-oriented hemisphere spokes, "
@@ -121,21 +66,8 @@ def _write_outputs(
             ),
             "Diffuse albedo is approximated from Blender material viewport/base color.",
         ],
-    }
-    if blender_file_name:
-        bake_report["blender_file_name"] = blender_file_name
-    bake_report_path = output_dir / "bake_report.json"
-    bake_report_path.write_text(
-        json.dumps(bake_report, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return BakeResult(
-        output_dir,
-        cache_path,
-        metadata_path,
-        bake_report_path,
-        preview_paths,
-        warnings,
+        warnings=warnings,
+        blender_file_name=blender_file_name,
     )
 
 

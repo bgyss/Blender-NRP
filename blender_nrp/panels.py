@@ -26,33 +26,54 @@ if bpy is not None:
             row = layout.row(align=True)
             row.prop(settings, "resolution_x")
             row.prop(settings, "resolution_y")
-            layout.prop(settings, "segment_count")
-            layout.prop(settings, "max_segment_distance")
             layout.prop(settings, "output_dir")
 
             box = layout.box()
             box.label(text="Bake")
+            box.prop(settings, "backend")
+            if settings.backend == "cycles_capture":
+                row = box.row(align=True)
+                row.prop(settings, "paths_per_pixel")
+                row.prop(settings, "max_bounces")
+                box.prop(settings, "packed_cache")
+            else:
+                box.prop(settings, "segment_count")
+            box.prop(settings, "max_segment_distance")
             box.operator("blender_nrp.bake_cache")
             box.operator("blender_nrp.validate_cache")
             box.prop(settings, "cache_path")
 
             box = layout.box()
             box.label(text="Proxy")
-            box.operator("blender_nrp.train_proxy")
+            row = box.row(align=True)
+            row.prop(settings, "train_iterations")
+            row.prop(settings, "train_device")
+            row = box.row(align=True)
+            row.operator("blender_nrp.train_proxy")
+            row.operator("blender_nrp.cancel_train", text="", icon="X")
             box.operator("blender_nrp.load_proxy")
             box.prop(settings, "model_path")
 
             box = layout.box()
             box.label(text="Relight")
-            box.operator("blender_nrp.create_sphere_light")
+            row = box.row(align=True)
+            row.operator("blender_nrp.create_sphere_light")
+            row.operator("blender_nrp.create_quad_light")
             box.operator("blender_nrp.relight_preview")
-            box.operator("blender_nrp.optimize_lights")
+            row = box.row(align=True)
+            row.prop(settings, "live_preview")
+            row.prop(settings, "preview_exposure")
+            box.prop(settings, "target_image_path")
+            row = box.row(align=True)
+            row.prop(settings, "optimize_steps")
+            row.operator("blender_nrp.optimize_lights", text="Solve")
 
             box = layout.box()
             box.label(text="Interchange")
             box.operator("blender_nrp.import_lights")
             box.operator("blender_nrp.export_lights")
             box.prop(settings, "light_json_path")
+            box.prop(settings, "export_coordinate_system")
 
             layout.label(text=settings.status)
 
@@ -72,4 +93,3 @@ def unregister() -> None:
         return
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)
-

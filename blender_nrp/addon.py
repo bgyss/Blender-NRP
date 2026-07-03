@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import panels, properties
+from . import panels, preview, properties
 from .operators import (
     bake_cache,
     export_lights,
@@ -24,6 +24,7 @@ MODULES = (
     optimize_lights,
     import_lights,
     export_lights,
+    preview,
     panels,
 )
 
@@ -36,4 +37,3 @@ def register() -> None:
 def unregister() -> None:
     for module in reversed(MODULES):
         module.unregister()
-

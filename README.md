@@ -2,15 +2,16 @@
 
 `Blender-NRP` is a Blender add-on for baking Neural Render Proxy path caches and relighting fixed-camera scenes inside Blender.
 
-The first implementation goal is functional correctness, not real-time performance:
+V2 targets parity with the current `nrp` reference, still prioritizing correctness over real-time performance:
 
-- bake a light-agnostic path cache from a Blender scene,
-- train or load a proxy,
-- create and edit NRP sphere lights as Blender objects,
-- preview fixed-camera relighting,
-- import and export ComfyUI-compatible light rigs.
+- bake a light-agnostic multi-bounce path cache (Cycles G-buffer passes, escape segments, optional packed fp16 + rgb9e5 layout) with a modal, cancellable operator,
+- train a real PyTorch neural proxy in the background (cosine LR, checkpoint/resume, MPS/CUDA) writing an `nrp`-loadable `model.pt`,
+- create and edit NRP sphere *and quad* lights as Blender objects,
+- preview fixed-camera relighting live inside Blender (Image datablock, debounced auto-update) via the proxy or the exact cache gather,
+- solve a light rig against a target image with gradients through the proxy (coordinate-descent fallback without torch),
+- import and export ComfyUI-compatible light rigs with real coordinate conversion.
 
-The detailed build goal lives in [docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md](docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md).
+The build goals live in [docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md](docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md) (V1) and [docs/prompts/blender-nrp-v2-goal-prompt.md](docs/prompts/blender-nrp-v2-goal-prompt.md) (V2).
 
 For installation, usage, and a quick tutorial, read [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
@@ -19,7 +20,7 @@ For installation, usage, and a quick tutorial, read [docs/USER_GUIDE.md](docs/US
 ```text
 blender_nrp/          Blender add-on package
   core/               Blender-independent cache, metadata, light, and validation logic
-  backends/           Bake backend interface and stock Blender backend placeholder
+  backends/           Bake backend interface, cycles_capture (V2), stock hemisphere (V1 fallback)
   operators/          Blender operators
   ui/                 UI helpers
 scripts/             Packaging and validation commands
@@ -50,7 +51,7 @@ The package command writes `dist/Blender-NRP.zip`, which can be installed throug
 
 For a local development install, either install the generated zip in Blender or place the repository on Blender's add-on search path so the `blender_nrp` package is importable.
 
-The add-on exposes a `Blender-NRP` panel in Scene properties. V1 uses a stock-Blender hemisphere backend: it ray casts one camera sample per pixel, records the first visible hit, and writes deterministic normal-oriented light-transport spokes. This is useful for workflow validation and fixed-shot relighting iteration, but it is not a physically exact Cycles path capture.
+The add-on exposes a `Blender-NRP` panel in Scene properties with two capture backends: `cycles_capture` (V2 default — Python-driven multi-bounce Lambertian transport over `scene.ray_cast` with real Cycles G-buffer passes and an A/B PSNR against a Cycles reference render in `bake_report.json`) and the V1 `stock_blender_hemi` fallback (first-hit + deterministic hemisphere spokes). Neither is claimed to be an exact Cycles kernel capture; the reports state the approximations.
 
 ## Tested Fixture Workflow
 
@@ -95,7 +96,7 @@ For Spring or Sprite Fright, download the production files from Blender Studio, 
 3. Click `Train Proxy` or set `Model Path` to an existing compatible model.
 4. Create or import NRP sphere lights.
 5. Click `Preview Relight` to write `relight_preview.png`.
-6. Click `Optimize Lights From Target` for the V1 deterministic solve path, then export the solved light rig JSON.
+6. Set a target image and click `Solve` to run inverse light optimization (gradient descent through the torch proxy, or coordinate descent without torch), then export the solved light rig JSON.
 
 The production scene manifests in `examples/scene_manifests/` document upstream URLs, license notes, suggested camera/frame settings, and expected artifact names. Large `.blend` files, generated caches, trained weights, and preview images should stay outside git.
 
@@ -104,7 +105,11 @@ The production scene manifests in `examples/scene_manifests/` document upstream 
 The add-on targets the same core contracts as `nrp` and `ComfyUI-NeuralRenderProxy`:
 
 - `path_cache.npz` with `n_paths`, `seg_pixel`, `seg_origin`, `seg_dir`, `seg_tmax`, `seg_throughput`, `albedo`, `normal`, `depth`, and `position`.
-- `metadata.json` with fixed-scene, fixed-camera, sphere-light metadata.
-- sphere-light rig JSON containing `scene_id`, `camera_id`, `coordinate_system`, and `lights`.
+- the packed cache layout (`packed_layout` key, fp16 geometry + rgb9e5 throughput) is read natively and optionally written.
+- `metadata.json` with fixed-scene, fixed-camera light metadata, including `throughput_normalization` (this repo stores raw throughput normalized by `n_paths` at gather time; the ComfyUI export path pre-divides instead).
+- light rig JSON containing `scene_id`, `camera_id`, `coordinate_system`, and `lights` (spheres and `"type": "quad"` entries; untyped entries stay spheres).
+- `model.pt` in `nrp`'s `TorchNRP` format.
+
+Run the cross-repo round-trip check against the actual sibling implementations with `python scripts/cross_repo_roundtrip.py`.
 
 Generated caches, model files, previews, and reports should stay under ignored output directories.

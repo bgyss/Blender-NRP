@@ -19,6 +19,12 @@ class BakeSettings:
     model_width: int = 64
     model_depth: int = 4
     seed: int = 0
+    # cycles_capture parameters (ignored by the stock hemisphere backend):
+    paths_per_pixel: int = 64
+    max_bounces: int = 4
+    packed: bool = False
+    reference_check: bool = False
+    reference_spp: int = 16
 
 
 @dataclass(frozen=True)

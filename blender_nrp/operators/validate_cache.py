@@ -30,10 +30,14 @@ if bpy is not None:
                 return cancel_with_status(context, f"Cache validation failed: {exc}")
             if not report.ok:
                 return cancel_with_status(context, "; ".join(report.errors))
-            return finish_with_status(
-                context,
-                f"Cache OK: {report.width}x{report.height}, {report.segment_count} segments",
+            layout = "packed" if report.packed else "default"
+            message = (
+                f"Cache OK: {report.width}x{report.height}, {report.segment_count} "
+                f"segments, schema v{report.schema_version}, {layout} layout"
             )
+            if report.medium is not None:
+                message += f", medium sigma_t={report.medium['sigma_t']}"
+            return finish_with_status(context, message)
 
 
 CLASSES = (BLENDER_NRP_OT_validate_cache,) if bpy is not None else ()

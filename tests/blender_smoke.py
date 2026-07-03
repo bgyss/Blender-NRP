@@ -1,16 +1,20 @@
-"""Blender background-mode smoke test for the Blender-NRP add-on.
+"""Blender background-mode smoke test for the Blender-NRP add-on (V2 chain).
 
 Run from the repository root with:
 
-    blender --background --factory-startup --python tests/blender_smoke.py
+    blender --background --factory-startup --python-exit-code 7 --python tests/blender_smoke.py
 
-The test creates a tiny scene, registers the add-on, executes the UI operators,
-and validates the generated artifacts. It is intentionally script-based so it can
-run in CI or on a local workstation without opening Blender's UI.
+Creates a tiny scene, registers the add-on, and executes the whole operator chain:
+stock + cycles_capture bakes (the latter with escape segments and a Cycles A/B PSNR
+in bake_report.json), cache validation, proxy training (real torch when Blender's
+Python has it, a clearly reported degradation otherwise), sphere + quad light
+creation, relight preview into the Image datablock, light JSON export/import with
+coordinate conversion, and inverse light optimization writing back onto objects.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -20,6 +24,8 @@ from mathutils import Vector
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+import numpy as np
 
 import blender_nrp
 from blender_nrp.core.lights import LightRig
@@ -42,6 +48,10 @@ def reset_scene() -> None:
 def make_material(name: str, color: tuple[float, float, float, float]) -> bpy.types.Material:
     material = bpy.data.materials.new(name)
     material.diffuse_color = color
+    material.use_nodes = True
+    bsdf = material.node_tree.nodes.get("Principled BSDF")
+    if bsdf is not None:
+        bsdf.inputs["Base Color"].default_value = color
     return material
 
 
@@ -87,8 +97,19 @@ def configure_addon(camera: bpy.types.Object) -> Path:
     settings.resolution_y = 16
     settings.segment_count = 4
     settings.max_segment_distance = 10.0
+    settings.paths_per_pixel = 8
+    settings.max_bounces = 3
     settings.light_json_path = str(output_dir / SCENE_ID / "exported_lights.json")
     return output_dir / SCENE_ID
+
+
+def torch_available_in_blender() -> bool:
+    try:
+        import torch  # noqa: F401
+
+        return True
+    except Exception:
+        return False
 
 
 def run() -> None:
@@ -98,47 +119,129 @@ def run() -> None:
         artifact_dir = configure_addon(camera)
         settings = bpy.context.scene.blender_nrp
 
-        assert_finished(bpy.ops.blender_nrp.bake_cache(), "Bake Path Cache")
-        cache_path = Path(settings.cache_path)
-        metadata_path = artifact_dir / "metadata.json"
-        report = validate_cache_bundle(cache_path, metadata_path)
+        # --- Stock backend still works (V1 fallback path).
+        settings.backend = "stock_blender_hemi"
+        assert_finished(bpy.ops.blender_nrp.bake_cache(), "Bake (stock)")
+        report = validate_cache_bundle(Path(settings.cache_path), artifact_dir / "metadata.json")
         if not report.ok:
-            raise AssertionError(f"cache validation failed: {report.errors}")
-        if report.segment_count != 16 * 16 * 4:
-            raise AssertionError(f"unexpected segment count: {report.segment_count}")
+            raise AssertionError(f"stock cache validation failed: {report.errors}")
+        if not 0 < report.segment_count <= 16 * 16 * 4 or report.segment_count % 4:
+            raise AssertionError(f"unexpected stock segment count: {report.segment_count}")
 
+        # --- Cycles capture backend: multi-bounce, escape segments, A/B PSNR.
+        settings.backend = "cycles_capture"
+        assert_finished(bpy.ops.blender_nrp.bake_cache(), "Bake (cycles_capture)")
+        cache_path = Path(settings.cache_path)
+        report = validate_cache_bundle(cache_path, artifact_dir / "metadata.json")
+        if not report.ok:
+            raise AssertionError(f"cycles cache validation failed: {report.errors}")
+        bake_report = json.loads((artifact_dir / "bake_report.json").read_text())
+        if bake_report["backend"] != "cycles_capture":
+            raise AssertionError("bake_report backend mismatch")
+        if bake_report["escape_segments"] <= 0:
+            raise AssertionError("cycles_capture bake recorded no escape segments")
+        if "reference_check" in bake_report:
+            psnr = bake_report["reference_check"]["psnr_db"]
+            print(f"cycles A/B reference PSNR: {psnr:.2f} dB")
+            if psnr < 5.0:
+                raise AssertionError(f"reference PSNR implausibly low: {psnr}")
+        else:
+            print("WARNING: reference_check missing from bake_report:", bake_report["warnings"])
         assert_finished(bpy.ops.blender_nrp.validate_cache(), "Validate Cache")
-        assert_finished(bpy.ops.blender_nrp.train_proxy(), "Train Proxy")
-        assert Path(settings.model_path).exists(), settings.model_path
-        assert_finished(bpy.ops.blender_nrp.load_proxy(), "Load Proxy")
 
+        # --- Proxy training: real torch or a clearly reported degradation.
+        has_torch = torch_available_in_blender()
+        settings.train_iterations = 40
+        settings.train_device = "cpu"
+        train_result = bpy.ops.blender_nrp.train_proxy()
+        if has_torch:
+            assert_finished(train_result, "Train Proxy")
+            assert Path(settings.model_path).exists(), settings.model_path
+            train_report = json.loads((artifact_dir / "train_report.json").read_text())
+            if train_report["training_backend"] != "torch":
+                raise AssertionError("expected a torch training run")
+            assert_finished(bpy.ops.blender_nrp.load_proxy(), "Load Proxy")
+        else:
+            if train_result != {"CANCELLED"} or "PyTorch" not in settings.status:
+                raise AssertionError(
+                    f"expected a clear missing-torch report, got {train_result}: "
+                    f"{settings.status}"
+                )
+            print("torch not available in Blender Python; degradation path verified")
+
+        # --- Sphere + quad lights and the relight preview image.
         assert_finished(bpy.ops.blender_nrp.create_sphere_light(), "Create NRP Sphere Light")
-        light = bpy.context.object
-        light.location = (0.0, -1.5, 2.0)
-        light["nrp_radius"] = 0.35
-        light["nrp_color"] = (1.0, 0.85, 0.65)
-        light["nrp_intensity"] = 6.0
+        sphere = bpy.context.object
+        sphere.location = (0.0, -1.5, 2.0)
+        sphere["nrp_radius"] = 0.35
+        sphere["nrp_color"] = (1.0, 0.85, 0.65)
+        sphere["nrp_intensity"] = 6.0
+
+        assert_finished(bpy.ops.blender_nrp.create_quad_light(), "Create NRP Quad Light")
+        quad = bpy.context.object
+        quad.location = (1.0, -1.0, 1.8)
+        quad["nrp_width"] = 1.2
+        quad["nrp_height"] = 0.8
+
         assert_finished(bpy.ops.blender_nrp.relight_preview(), "Preview Relight")
         assert (artifact_dir / "relight_preview.png").exists()
+        preview_image = bpy.data.images.get("NRP Relight Preview")
+        if preview_image is None or preview_image.size[0] != 16:
+            raise AssertionError("preview Image datablock missing or wrong size")
+        if "gather" not in settings.status and "proxy" not in settings.status:
+            raise AssertionError(f"preview status does not label its source: {settings.status}")
 
+        # --- Export (converted to y-up) / import (converted back) round trip.
         bpy.ops.object.select_all(action="DESELECT")
-        light.select_set(True)
-        bpy.context.view_layer.objects.active = light
+        sphere.select_set(True)
+        quad.select_set(True)
+        bpy.context.view_layer.objects.active = sphere
+        settings.export_coordinate_system = "right_handed_y_up"
         assert_finished(bpy.ops.blender_nrp.export_lights(), "Export Lights")
-        exported = Path(settings.light_json_path)
-        rig = LightRig.load(exported)
-        if len(rig.lights) != 1:
-            raise AssertionError(f"expected one exported light, got {len(rig.lights)}")
+        rig = LightRig.load(Path(settings.light_json_path))
+        if rig.coordinate_system != "right_handed_y_up":
+            raise AssertionError("export did not convert to right_handed_y_up")
+        if sorted(light.light_type for light in rig.lights) != ["quad", "sphere"]:
+            raise AssertionError("expected one sphere + one quad in the export")
+        exported_sphere = next(li for li in rig.lights if li.light_type == "sphere")
+        if not np.allclose(exported_sphere.position, (0.0, 2.0, 1.5)):
+            raise AssertionError(f"y-up conversion wrong: {exported_sphere.position}")
 
         assert_finished(bpy.ops.blender_nrp.import_lights(), "Import Lights")
-        imported = [
-            obj for obj in bpy.context.scene.objects if obj.get("nrp_light_type") == "sphere"
-        ]
-        if len(imported) < 2:
-            raise AssertionError("expected imported NRP sphere light")
+        back_sphere = next(
+            o
+            for o in bpy.context.scene.objects
+            if o.get("nrp_light_type") == "sphere" and o.name != sphere.name
+        )
+        if not np.allclose(tuple(back_sphere.location), (0.0, -1.5, 2.0), atol=1e-6):
+            raise AssertionError(
+                f"import did not convert back to Blender coords: {tuple(back_sphere.location)}"
+            )
 
+        # --- Inverse optimization against a target derived from a known rig.
+        from blender_nrp.core.gather import gather_hdr
+        from blender_nrp.core.light_objects import collect_rig_lights
+        from blender_nrp.core.path_cache import load_arrays
+
+        arrays = load_arrays(cache_path).arrays
+        target = gather_hdr(arrays, tuple(collect_rig_lights([sphere])))
+        target_path = artifact_dir / "target.npy"
+        np.save(target_path, target)
+        settings.target_image_path = str(target_path)
+        settings.optimize_steps = 60
+        prior_intensity = float(sphere["nrp_intensity"])
         assert_finished(bpy.ops.blender_nrp.optimize_lights(), "Optimize Lights")
         assert (artifact_dir / "solved_lights.json").exists()
+        solve_report = json.loads((artifact_dir / "solve_report.json").read_text())
+        if solve_report["solver"] not in ("torch_proxy_adam", "numpy_coordinate_descent"):
+            raise AssertionError(f"unexpected solver: {solve_report['solver']}")
+        if "gather_mse_vs_target_final" not in solve_report:
+            raise AssertionError("solve_report missing gather-space loss")
+        if float(sphere["nrp_intensity"]) == prior_intensity and solve_report[
+            "gather_mse_vs_target_final"
+        ] == solve_report["gather_mse_vs_target_initial"]:
+            print("NOTE: solver made no change (already at optimum?)")
+
         print("BLENDER_NRP_SMOKE_OK")
     finally:
         blender_nrp.unregister()

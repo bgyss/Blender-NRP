@@ -1,4 +1,11 @@
-"""NRP sphere-light JSON contract."""
+"""NRP light JSON contract (sphere + quad).
+
+The rig JSON stays wire-compatible with `nrp` and `ComfyUI-NeuralRenderProxy`:
+`position`/`radius`/`color`/`intensity` for spheres, plus `"type": "quad"` entries with
+`normal`/`width`/`height`. Dispatch follows nrp's `light_from_dict`: specs without a
+`"type"` key are quads when they carry a `width` field and spheres otherwise, so V1
+sphere JSON stays loadable unchanged.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +28,8 @@ class SphereLight:
     color: tuple[float, float, float]
     intensity: float
 
+    light_type = "sphere"
+
     def __post_init__(self) -> None:
         if self.radius <= 0:
             raise ValueError("sphere light radius must be positive")
@@ -29,7 +38,7 @@ class SphereLight:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SphereLight:
-        if data.get("type") != "sphere":
+        if data.get("type", "sphere") != "sphere":
             raise ValueError(f"unsupported light type: {data.get('type')!r}")
         for field in ("position", "radius", "color", "intensity"):
             if field not in data:
@@ -52,8 +61,75 @@ class SphereLight:
 
 
 @dataclass(frozen=True)
+class QuadLight:
+    """Rectangle emitter: center position, unit normal, width x height extent."""
+
+    position: tuple[float, float, float]
+    normal: tuple[float, float, float]
+    width: float
+    height: float
+    color: tuple[float, float, float]
+    intensity: float
+
+    light_type = "quad"
+
+    def __post_init__(self) -> None:
+        norm = sum(component * component for component in self.normal) ** 0.5
+        if norm <= 0.0:
+            raise ValueError("quad light normal must be nonzero")
+        object.__setattr__(
+            self, "normal", tuple(float(component) / norm for component in self.normal)
+        )
+        if self.width <= 0 or self.height <= 0:
+            raise ValueError("quad light width/height must be positive")
+        if self.intensity < 0:
+            raise ValueError("quad light intensity must be non-negative")
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> QuadLight:
+        if data.get("type", "quad") != "quad":
+            raise ValueError(f"unsupported light type: {data.get('type')!r}")
+        for field in ("position", "normal", "width", "height", "color", "intensity"):
+            if field not in data:
+                raise ValueError(f"missing light field: {field}")
+        return cls(
+            position=_vec3(data["position"], name="position"),
+            normal=_vec3(data["normal"], name="normal"),
+            width=float(data["width"]),
+            height=float(data["height"]),
+            color=_vec3(data["color"], name="color"),
+            intensity=float(data["intensity"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": "quad",
+            "position": list(self.position),
+            "normal": list(self.normal),
+            "width": self.width,
+            "height": self.height,
+            "color": list(self.color),
+            "intensity": self.intensity,
+        }
+
+
+AnyLight = SphereLight | QuadLight
+
+
+def light_from_dict(data: dict[str, Any]) -> AnyLight:
+    """Dispatch on the optional "type" key; untyped specs with a width are quads,
+    all other untyped specs remain spheres (matches nrp's `light_from_dict`)."""
+    kind = data.get("type", "quad" if "width" in data else "sphere")
+    if kind == "sphere":
+        return SphereLight.from_dict(data)
+    if kind == "quad":
+        return QuadLight.from_dict(data)
+    raise ValueError(f"unknown light type {kind!r}")
+
+
+@dataclass(frozen=True)
 class LightRig:
-    lights: tuple[SphereLight, ...]
+    lights: tuple[AnyLight, ...]
     scene_id: str | None = None
     camera_id: str | None = None
     coordinate_system: str = "blender_z_up"
@@ -62,13 +138,17 @@ class LightRig:
         if not self.lights:
             raise ValueError("light rig must contain at least one light")
 
+    @property
+    def light_types(self) -> tuple[str, ...]:
+        return tuple(sorted({light.light_type for light in self.lights}))
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> LightRig:
         lights = data.get("lights")
         if not isinstance(lights, list):
             raise ValueError("light rig JSON must contain a lights list")
         return cls(
-            tuple(SphereLight.from_dict(light) for light in lights),
+            tuple(light_from_dict(light) for light in lights),
             scene_id=data.get("scene_id"),
             camera_id=data.get("camera_id"),
             coordinate_system=data.get("coordinate_system", "blender_z_up"),
@@ -93,4 +173,3 @@ class LightRig:
         with target.open("w", encoding="utf-8") as handle:
             json.dump(self.to_dict(), handle, indent=2, sort_keys=True)
             handle.write("\n")
-
