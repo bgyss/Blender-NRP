@@ -107,7 +107,11 @@ info/error toast, and the bottom status line keeps the last message.
     disk but isn't loaded (e.g. after reopening the file).
 - **3 · Relight** (chip: `preview ready` once the preview image exists):
   - `Sphere` / `Quad` add a visible NRP emitter at the 3D cursor. A quad emits along its
-    local +Z axis — rotate the object to aim it; `nrp_width`/`nrp_height` set its extent.
+    local +Z axis — rotate the object to aim it.
+  - When an NRP light is the active object, the **NRP Light** panel appears in
+    `Object Properties` with labelled sliders for **Intensity**, **Color**, and the
+    light's shape parameters (**Radius** for spheres; **Width**/**Height** for quads).
+    Changing any value here triggers a live-preview refresh automatically.
   - `Preview Relight` renders into the `NRP Relight Preview` Image datablock and writes
     `relight_preview.png`. Any open Image Editor that isn't already showing an image is
     pointed at the preview automatically, and the panel prints where to find it. The
@@ -162,7 +166,10 @@ pipeline is wired correctly.
 
 1. Click **Sphere** in the Stage 3 row. A sphere NRP light appears at the 3D cursor;
    move it where you want.
-2. Click **Preview Relight**.
+2. With the sphere selected, open **Object Properties** (the orange square icon). The
+   **NRP Light** panel shows the light's **Intensity**, **Color**, and **Radius**. Drag
+   the Intensity slider to change how bright the light is.
+3. Click **Preview Relight**.
    - The `3 · Relight` chip flips to **✓ preview ready**.
    - The `NRP Relight Preview` Image datablock is created and written to
      `relight_preview.png` in the output directory.
@@ -281,6 +288,9 @@ systems on both import and export; the `coordinate_system` field is authoritativ
 NRP light objects store custom properties (`nrp_light_type`, `nrp_radius` or
 `nrp_width`/`nrp_height`, `nrp_color`, `nrp_intensity`, ...) that round trip between
 Blender and JSON. A quad's emission normal is its local +Z axis in world space.
+Select an NRP light and open **Object Properties → NRP Light** to edit intensity,
+color, and shape parameters with proper sliders instead of the raw custom-property
+editor.
 
 ## Interop Conventions (Important For Sibling Projects)
 

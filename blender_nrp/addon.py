@@ -13,6 +13,7 @@ from .operators import (
     train_proxy,
     validate_cache,
 )
+from .ui import light_panel
 
 MODULES = (
     properties,
@@ -25,6 +26,7 @@ MODULES = (
     import_lights,
     export_lights,
     preview,
+    light_panel,
     panels,
 )
 

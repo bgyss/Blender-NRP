@@ -69,3 +69,62 @@ def test_apply_light_to_object_writes_solved_params():
     apply_light_to_object(quad_obj, solved_quad)
     assert quad_obj["nrp_width"] == 3.0
     assert quad_obj["nrp_height"] == 2.0
+
+
+def test_intensity_change_round_trips_through_object():
+    """Mutating nrp_intensity on the object is reflected when re-reading the light."""
+    obj = FakeObject(
+        location=(1, 2, 3),
+        nrp_light_type="sphere",
+        nrp_radius=0.25,
+        nrp_color=(1.0, 1.0, 1.0),
+        nrp_intensity=1.0,
+    )
+    light = light_from_object(obj)
+    assert light.intensity == 1.0
+
+    obj["nrp_intensity"] = 5.5
+    light2 = light_from_object(obj)
+    assert light2.intensity == 5.5
+
+    obj["nrp_intensity"] = 0.0
+    light3 = light_from_object(obj)
+    assert light3.intensity == 0.0
+
+
+def test_color_change_round_trips_through_object():
+    """Mutating nrp_color on the object is reflected when re-reading the light."""
+    obj = FakeObject(
+        location=(0, 0, 0),
+        nrp_light_type="quad",
+        nrp_width=1.0,
+        nrp_height=1.0,
+        nrp_color=(1.0, 1.0, 1.0),
+        nrp_intensity=1.0,
+    )
+    light = light_from_object(obj)
+    assert light.color == (1.0, 1.0, 1.0)
+
+    obj["nrp_color"] = [0.5, 0.3, 0.1]
+    light2 = light_from_object(obj)
+    assert light2.color == (0.5, 0.3, 0.1)
+
+
+def test_radius_and_size_change_round_trips():
+    """Mutating nrp_radius / nrp_width / nrp_height is reflected on re-read."""
+    sphere = FakeObject(
+        nrp_light_type="sphere", nrp_radius=0.25,
+        nrp_color=(1, 1, 1), nrp_intensity=1.0,
+    )
+    sphere["nrp_radius"] = 0.75
+    assert light_from_object(sphere).radius == 0.75
+
+    quad = FakeObject(
+        nrp_light_type="quad", nrp_width=1.0, nrp_height=1.0,
+        nrp_color=(1, 1, 1), nrp_intensity=1.0,
+    )
+    quad["nrp_width"] = 2.5
+    quad["nrp_height"] = 3.0
+    q = light_from_object(quad)
+    assert q.width == 2.5
+    assert q.height == 3.0
