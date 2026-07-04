@@ -89,14 +89,26 @@ If `tests/fixtures/minimal_scene.blend` is not present in a fresh checkout, open
 
 ## Manual Production Scene Path
 
-For Spring or Sprite Fright, download the production files from Blender Studio, open the chosen shot in Blender, install `dist/Blender-NRP.zip`, and use the Scene properties `Blender-NRP` panel:
+For Spring or Sprite Fright, download the production files from Blender Studio, open the
+chosen shot in Blender, install `dist/Blender-NRP.zip`, and use the Scene Properties
+`Blender-NRP` panel:
 
-1. Set a stable scene ID, camera, resolution, output directory, segment count, and max segment distance.
-2. Click `Bake Path Cache`, then `Validate Cache`.
-3. Click `Train Proxy` or set `Model Path` to an existing compatible model.
-4. Create or import NRP sphere lights.
-5. Click `Preview Relight` to write `relight_preview.png`.
-6. Set a target image and click `Solve` to run inverse light optimization (gradient descent through the torch proxy, or coordinate descent without torch), then export the solved light rig JSON.
+1. Set `Scene ID`, select the `Camera`, and choose a resolution and output directory.
+   Start at `64 × 64` to validate the pipeline before committing to full resolution.
+2. Click **Bake Path Cache** — validation runs automatically at the end; the
+   `1 · Path Cache` chip flips to **✓ baked** and the status shows
+   *"Baked + validated…"* with a toast.
+3. Click **Train Proxy** — when training finishes the proxy is auto-loaded; the
+   `2 · Neural Proxy` chip flips to **✓ loaded** and the status ends with
+   *"proxy auto-loaded"*. Use `Load Proxy` only when reopening a scene with a
+   pre-existing `model.pt`.
+4. In Stage 3, click **Sphere** (appears at the 3D cursor) and position it, then
+   click **Preview Relight** — the `3 · Relight` chip flips to **✓ preview ready**.
+5. Split off an Image Editor — it already shows `NRP Relight Preview`. Enable
+   **Live Preview** and drag the light; the preview refreshes ~0.3 s after you stop.
+6. Set a target image and click **Solve** to run inverse light optimization (gradient
+   descent through the torch proxy, or coordinate descent without torch), then export
+   the solved light rig JSON.
 
 The production scene manifests in `examples/scene_manifests/` document upstream URLs, license notes, suggested camera/frame settings, and expected artifact names. Large `.blend` files, generated caches, trained weights, and preview images should stay outside git.
 
