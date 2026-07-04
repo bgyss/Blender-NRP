@@ -44,7 +44,31 @@ if bpy is not None:
 
         def _finish(self, context: bpy.types.Context, result) -> set[str]:
             context.scene.blender_nrp.cache_path = str(result.cache_path)
-            return finish_with_status(context, f"Baked {result.cache_path}")
+            # Auto-validate: a bake that quietly produced a malformed cache is worse
+            # than a loud failure, so fold validation straight into the bake result.
+            from ..core.path_cache import validate_npz
+
+            name = Path(result.cache_path).name
+            try:
+                report = validate_npz(Path(result.cache_path))
+            except Exception as exc:
+                return finish_with_status(
+                    self, context, f"Baked {name}; validation errored: {exc}", level="WARNING"
+                )
+            if not report.ok:
+                return finish_with_status(
+                    self,
+                    context,
+                    f"Baked {name} but validation FAILED: {'; '.join(report.errors)}",
+                    level="ERROR",
+                )
+            layout = "packed" if report.packed else "default"
+            return finish_with_status(
+                self,
+                context,
+                f"Baked + validated {name}: {report.width}x{report.height}, "
+                f"{report.segment_count} segments, {layout} layout",
+            )
 
         def _cleanup(self, context: bpy.types.Context) -> None:
             if self._timer is not None:
@@ -66,7 +90,7 @@ if bpy is not None:
                 try:
                     result = stock_blender_hemi.bake(context, bake_settings)
                 except Exception as exc:
-                    return cancel_with_status(context, f"Path-cache bake failed: {exc}")
+                    return cancel_with_status(self, context, f"Path-cache bake failed: {exc}")
                 finally:
                     context.scene.camera = self._original_camera
                     self._original_camera = None
@@ -77,7 +101,7 @@ if bpy is not None:
                 try:
                     result = cycles_capture.bake(context, bake_settings)
                 except Exception as exc:
-                    return cancel_with_status(context, f"Path-cache bake failed: {exc}")
+                    return cancel_with_status(self, context, f"Path-cache bake failed: {exc}")
                 finally:
                     context.scene.camera = self._original_camera
                     self._original_camera = None
@@ -93,17 +117,17 @@ if bpy is not None:
         def modal(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
             if event.type == "ESC":
                 self._cleanup(context)
-                return cancel_with_status(context, "Bake cancelled")
+                return cancel_with_status(self, context, "Bake cancelled")
             if event.type != "TIMER":
                 return {"PASS_THROUGH"}
             try:
                 fraction, message, result = next(self._steps)
             except StopIteration:
                 self._cleanup(context)
-                return cancel_with_status(context, "Bake ended without a result")
+                return cancel_with_status(self, context, "Bake ended without a result")
             except Exception as exc:
                 self._cleanup(context)
-                return cancel_with_status(context, f"Path-cache bake failed: {exc}")
+                return cancel_with_status(self, context, f"Path-cache bake failed: {exc}")
             if result is not None:
                 self._cleanup(context)
                 return self._finish(context, result)

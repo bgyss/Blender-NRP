@@ -22,14 +22,14 @@ if bpy is not None:
         def execute(self, context: bpy.types.Context) -> set[str]:
             settings = context.scene.blender_nrp
             if not settings.cache_path:
-                return cancel_with_status(context, "No cache path selected")
+                return cancel_with_status(self, context, "No cache path selected")
             cache_path = Path(bpy.path.abspath(settings.cache_path))
             try:
                 report = validate_npz(cache_path)
             except Exception as exc:
-                return cancel_with_status(context, f"Cache validation failed: {exc}")
+                return cancel_with_status(self, context, f"Cache validation failed: {exc}")
             if not report.ok:
-                return cancel_with_status(context, "; ".join(report.errors))
+                return cancel_with_status(self, context, "; ".join(report.errors))
             layout = "packed" if report.packed else "default"
             message = (
                 f"Cache OK: {report.width}x{report.height}, {report.segment_count} "
@@ -37,7 +37,7 @@ if bpy is not None:
             )
             if report.medium is not None:
                 message += f", medium sigma_t={report.medium['sigma_t']}"
-            return finish_with_status(context, message)
+            return finish_with_status(self, context, message)
 
 
 CLASSES = (BLENDER_NRP_OT_validate_cache,) if bpy is not None else ()

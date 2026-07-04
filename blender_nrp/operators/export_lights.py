@@ -27,10 +27,10 @@ if bpy is not None:
         def execute(self, context: bpy.types.Context) -> set[str]:
             settings = context.scene.blender_nrp
             if not settings.light_json_path:
-                return cancel_with_status(context, "No light JSON path selected")
+                return cancel_with_status(self, context, "No light JSON path selected")
             lights = collect_rig_lights(context.selected_objects)
             if not lights:
-                return cancel_with_status(context, "No selected NRP lights")
+                return cancel_with_status(self, context, "No selected NRP lights")
             rig = LightRig(
                 tuple(lights),
                 scene_id=settings.scene_id,
@@ -40,9 +40,10 @@ if bpy is not None:
             try:
                 rig = convert_rig(rig, settings.export_coordinate_system)
             except ValueError as exc:
-                return cancel_with_status(context, f"Light export failed: {exc}")
+                return cancel_with_status(self, context, f"Light export failed: {exc}")
             rig.save(Path(bpy.path.abspath(settings.light_json_path)))
             return finish_with_status(
+                self,
                 context,
                 f"Exported {len(lights)} NRP lights ({rig.coordinate_system})",
             )

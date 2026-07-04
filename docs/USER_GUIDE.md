@@ -82,34 +82,40 @@ The add-on panel appears in `Scene Properties` as `Blender-NRP`.
 
 ## Panel Overview
 
-Open `Scene Properties > Blender-NRP`.
+Open `Scene Properties > Blender-NRP`. The panel is three numbered stages, each with a
+right-aligned status chip — a **✓ checkmark** when the stage is complete, a dot when it
+isn't — so you can see at a glance where you are. Every button also raises Blender's usual
+info/error toast, and the bottom status line keeps the last message.
 
 - Scene ID / Camera / Width / Height / Output Directory: shot identity and cache size.
-- Bake box:
+- **1 · Path Cache** (chip: `baked` once a cache exists):
   - Backend: `Cycles Capture` (real multi-bounce transport, V2 default) or
     `Stock Hemisphere` (fast V1 fallback, no real bounces).
   - Paths / Pixel and Max Bounces: the Monte Carlo budget for Cycles Capture.
   - Packed Cache: write the fp16 + rgb9e5 packed layout (~4x smaller).
   - `Bake Path Cache` runs modally — the status line shows progress and **Esc cancels**.
-  - `Validate Cache` reports resolution, segment count, schema version, layout, and
-    medium metadata for any cache (including packed caches from `nrp`).
-- Proxy box:
-  - Train Iterations / Device (`auto` picks MPS or CUDA when available).
-  - `Train Proxy` runs on a background thread; the status line shows live loss.
-    The X button cancels after the current iteration. `checkpoint.pt` is written
-    periodically so long runs can resume.
-  - `Load Proxy` loads a trained `model.pt` (nrp `TorchNRP` format) for preview and
-    optimization.
-- Relight box:
-  - `Create NRP Sphere Light` / `Create NRP Quad Light`. A quad emits along its local
-    +Z axis — rotate the object to aim it; `nrp_width`/`nrp_height` set its extent.
-  - `Preview Relight` renders into the `NRP Relight Preview` Image datablock (open it
-    in an Image Editor) and writes `relight_preview.png`. The status line says whether
-    the trained proxy (fast) or the exact cache gather produced the image.
-  - Live Preview: auto-refresh the preview ~0.3 s after you stop moving an NRP light.
-  - Exposure: linear multiplier applied to the preview image (raise it if the
-    preview looks black at low light intensities).
-  - Target Image + Solver Steps + `Solve`: inverse optimization (see below).
+    Validation now runs **automatically** at the end of the bake; the result (resolution,
+    segment count, schema version, layout) is folded into the status, and a malformed
+    cache is reported loudly instead of silently.
+- **2 · Neural Proxy** (chip: `loaded` once a proxy is in memory):
+  - Train Iterations / Device (`auto` picks MPS or CUDA when available). Training is
+    disabled until a cache is baked.
+  - `Train Proxy` runs on a background thread; the status line shows live loss. The X
+    button cancels after the current iteration. `checkpoint.pt` is written periodically
+    so long runs can resume. When training finishes the proxy is **auto-loaded** into
+    memory — no separate Load step. `Load Proxy` appears only when a `model.pt` exists on
+    disk but isn't loaded (e.g. after reopening the file).
+- **3 · Relight** (chip: `preview ready` once the preview image exists):
+  - `Sphere` / `Quad` add a visible NRP emitter at the 3D cursor. A quad emits along its
+    local +Z axis — rotate the object to aim it; `nrp_width`/`nrp_height` set its extent.
+  - `Preview Relight` renders into the `NRP Relight Preview` Image datablock and writes
+    `relight_preview.png`. Any open Image Editor that isn't already showing an image is
+    pointed at the preview automatically, and the panel prints where to find it. The
+    status says whether the trained proxy (fast) or the exact cache gather produced it.
+  - Live Preview (toggle) / Exposure: auto-refresh the preview ~0.3 s after you stop
+    moving an NRP light; Exposure is a linear multiplier (raise it if the preview looks
+    black at low light intensities).
+  - Target + Solver Steps + `Solve`: inverse optimization (see below).
 - Interchange box: light JSON import/export with an Export Coords selector
   (`right_handed_y_up` for ComfyUI, `blender_z_up` for no conversion). Import converts
   from the file's declared coordinate system into Blender's automatically.
@@ -122,23 +128,29 @@ Open `Scene Properties > Blender-NRP`.
    small resolution such as `64 x 64` for the first run.
 3. Keep Backend at `Cycles Capture` and `Max Bounces = 4`; lower `Paths / Pixel`
    from the default 64 to 32 for a faster first run.
-4. Click `Bake Path Cache` and watch the progress in the status line (Esc cancels).
-   `bake_report.json` includes an A/B PSNR against a real Cycles render of an emissive
-   validation sphere — the honest agreement number, not a claim of exactness.
-5. Click `Validate Cache`.
-6. Click `Train Proxy` (needs torch in Blender's Python; otherwise the status tells
-   you and everything below still works via the exact gather). Training runs in the
-   background; when done the status shows the device, wall-clock, and validation PSNR.
-7. Click `Load Proxy`.
-8. Click `Create NRP Sphere Light` and/or `Create NRP Quad Light`, position them.
-9. Open an Image Editor, pick the `NRP Relight Preview` image, enable `Live Preview`,
-   and drag your lights — the preview refreshes as you edit.
-10. To solve a rig against a reference: set `Target Image` to a PNG or `.npy` at cache
-    resolution, click `Solve`. Solved positions/sizes/colors/intensities are written
-    back onto the light objects, and `solve_report.json` records before/after loss in
-    both proxy space and physically-grounded gather space.
-11. Set `Light JSON`, select your lights, choose Export Coords, and click
-    `Export Selected NRP Lights JSON` for ComfyUI interchange.
+4. Click `Bake Path Cache` and watch the progress in the status line (Esc cancels). The
+   cache is validated automatically when the bake finishes, and the `1 · Path Cache` chip
+   turns to `baked`. `bake_report.json` includes an A/B PSNR against a real Cycles render
+   of an emissive validation sphere — the honest agreement number, not a claim of exactness.
+5. Click `Train Proxy` (needs torch in Blender's Python; otherwise the status tells you
+   and everything below still works via the exact gather). Training runs in the
+   background; when done the status shows the device, wall-clock, and validation PSNR, and
+   the proxy is loaded automatically (the `2 · Neural Proxy` chip turns to `loaded`). No
+   separate Load Proxy step is needed.
+6. Click `Sphere` and/or `Quad` to add NRP lights (they appear at the 3D cursor), then
+   position them.
+7. Click `Preview Relight`. This *creates* the `NRP Relight Preview` image — it won't
+   exist in the Image Editor's image dropdown until you run a successful preview at least
+   once. Open an Image Editor (Editor Type menu, top-left of any area → Image Editor); if
+   it's empty it will already show the preview, otherwise pick `NRP Relight Preview` from
+   the image dropdown. Enable `Live Preview` and drag your lights — the preview refreshes
+   as you edit.
+8. To solve a rig against a reference: set `Target` to a PNG or `.npy` at cache
+   resolution, click `Solve`. Solved positions/sizes/colors/intensities are written
+   back onto the light objects, and `solve_report.json` records before/after loss in
+   both proxy space and physically-grounded gather space.
+9. Set `Light JSON`, select your lights, choose Export Coords, and click `Export` for
+   ComfyUI interchange.
 
 For a scene ID of `fixture_room_001`, the output layout is:
 

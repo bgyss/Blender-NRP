@@ -58,13 +58,18 @@ def _write_image_datablock(image_float: np.ndarray) -> None:
     rgba[..., :3] = image_float[::-1]  # Blender stores bottom row first
     image.pixels.foreach_set(rgba.reshape(-1))
     image.update()
-    # Nudge open Image Editors to redraw.
+    # Point any Image Editor that isn't already showing something at the preview so
+    # the user doesn't have to hunt for it in the datablock dropdown, then redraw.
     wm = bpy.context.window_manager
     if wm is not None:
         for window in wm.windows:
             for area in window.screen.areas:
-                if area.type == "IMAGE_EDITOR":
-                    area.tag_redraw()
+                if area.type != "IMAGE_EDITOR":
+                    continue
+                for space in area.spaces:
+                    if space.type == "IMAGE_EDITOR" and space.image is None:
+                        space.image = image
+                area.tag_redraw()
 
 
 def update_preview(context) -> tuple[bool, str]:

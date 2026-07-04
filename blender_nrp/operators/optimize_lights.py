@@ -55,9 +55,9 @@ if bpy is not None:
         def execute(self, context: bpy.types.Context) -> set[str]:
             settings = context.scene.blender_nrp
             if not settings.cache_path:
-                return cancel_with_status(context, "No cache path selected")
+                return cancel_with_status(self, context, "No cache path selected")
             if not settings.target_image_path:
-                return cancel_with_status(context, "No target image selected")
+                return cancel_with_status(self, context, "No target image selected")
 
             pairs = [
                 (obj, light)
@@ -65,7 +65,7 @@ if bpy is not None:
                 if (light := light_from_object(obj)) is not None
             ]
             if not pairs:
-                return cancel_with_status(context, "No NRP lights to optimize")
+                return cancel_with_status(self, context, "No NRP lights to optimize")
             objects = [obj for obj, _ in pairs]
             lights = tuple(light for _, light in pairs)
 
@@ -73,14 +73,14 @@ if bpy is not None:
             try:
                 arrays = load_arrays(cache_path).arrays
             except Exception as exc:
-                return cancel_with_status(context, f"Cache load failed: {exc}")
+                return cancel_with_status(self, context, f"Cache load failed: {exc}")
             height, width, _ = arrays["albedo"].shape
             try:
                 target = _load_target(
                     Path(bpy.path.abspath(settings.target_image_path)), height, width
                 )
             except Exception as exc:
-                return cancel_with_status(context, f"Target load failed: {exc}")
+                return cancel_with_status(self, context, f"Target load failed: {exc}")
 
             torch_ok, _detail = torch_status()
             use_proxy = (
@@ -109,7 +109,7 @@ if bpy is not None:
                             "gradient-based solver."
                         )
             except Exception as exc:
-                return cancel_with_status(context, f"Light optimization failed: {exc}")
+                return cancel_with_status(self, context, f"Light optimization failed: {exc}")
 
             solved = [light_from_dict(entry) for entry in report["optimized_lights"]]
             for obj, light in zip(objects, solved, strict=False):
@@ -120,6 +120,7 @@ if bpy is not None:
             rig.save(output_dir / "solved_lights.json")
             write_json_report(output_dir / "solve_report.json", report)
             return finish_with_status(
+                self,
                 context,
                 f"Solved {len(solved)} lights via {report['solver']}: gather MSE "
                 f"{report['gather_mse_vs_target_initial']:.4g} -> "

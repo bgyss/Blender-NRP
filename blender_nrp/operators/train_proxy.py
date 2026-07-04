@@ -25,6 +25,21 @@ if bpy is not None:
 
     _state: dict = {"thread": None, "progress": "", "report": None, "error": None, "cancel": False}
 
+    def _autoload_proxy(model_path: Path) -> str:
+        """Load the freshly trained model into the shared runtime so Preview/Solve
+        can use it immediately. Returns a status suffix (never raises)."""
+        from .. import proxy_runtime
+
+        try:
+            from ..core.torch_proxy.model import TorchNRP
+
+            model = TorchNRP.load(str(model_path))
+        except Exception as exc:  # keep the train result; just report the load miss
+            proxy_runtime.clear()
+            return f" — auto-load failed: {exc}"
+        proxy_runtime.set_model(model, str(model_path), model.light_type)
+        return f" — proxy auto-loaded ({model.light_type})"
+
     def _run_training(arrays, model_path: Path, iterations: int, device: str) -> None:
         from ..core.torch_proxy.train import train_proxy
 
@@ -61,9 +76,10 @@ if bpy is not None:
             if report.get("cancelled"):
                 settings.status = "Training cancelled (partial model saved)"
             else:
+                suffix = _autoload_proxy(model_path)
                 settings.status = (
                     f"Trained proxy on {report['device']} in {report['train_seconds']:.1f}s "
-                    f"(val PSNR {report['val_psnr_db_mean']:.1f} dB)"
+                    f"(val PSNR {report['val_psnr_db_mean']:.1f} dB){suffix}"
                 )
             _state["thread"] = None
             return None
@@ -79,17 +95,17 @@ if bpy is not None:
         def execute(self, context: bpy.types.Context) -> set[str]:
             settings = context.scene.blender_nrp
             if _state["thread"] is not None and _state["thread"].is_alive():
-                return cancel_with_status(context, "Training already running")
+                return cancel_with_status(self, context, "Training already running")
             if not settings.cache_path:
-                return cancel_with_status(context, "No cache path selected")
+                return cancel_with_status(self, context, "No cache path selected")
             available, detail = torch_status()
             if not available:
-                return cancel_with_status(context, detail)
+                return cancel_with_status(self, context, detail)
             cache_path = Path(bpy.path.abspath(settings.cache_path))
             try:
                 arrays = load_arrays(cache_path).arrays
             except Exception as exc:
-                return cancel_with_status(context, f"Cache load failed: {exc}")
+                return cancel_with_status(self, context, f"Cache load failed: {exc}")
             model_path = cache_path.parent / "model.pt"
 
             if bpy.app.background:
@@ -103,13 +119,15 @@ if bpy is not None:
                         device=settings.train_device,
                     )
                 except Exception as exc:
-                    return cancel_with_status(context, f"Proxy training failed: {exc}")
+                    return cancel_with_status(self, context, f"Proxy training failed: {exc}")
                 write_json_report(model_path.parent / "train_report.json", report)
                 settings.model_path = str(model_path)
+                suffix = _autoload_proxy(model_path)
                 return finish_with_status(
+                    self,
                     context,
                     f"Trained proxy on {report['device']} "
-                    f"(val PSNR {report['val_psnr_db_mean']:.1f} dB)",
+                    f"(val PSNR {report['val_psnr_db_mean']:.1f} dB){suffix}",
                 )
 
             _state.update({"progress": "", "report": None, "error": None, "cancel": False})
@@ -121,7 +139,7 @@ if bpy is not None:
             _state["thread"] = thread
             thread.start()
             bpy.app.timers.register(_poll_training, first_interval=0.25)
-            return finish_with_status(context, "Training started in background…")
+            return finish_with_status(self, context, "Training started in background…")
 
     class BLENDER_NRP_OT_cancel_train(bpy.types.Operator):
         bl_idname = "blender_nrp.cancel_train"
@@ -130,9 +148,9 @@ if bpy is not None:
 
         def execute(self, context: bpy.types.Context) -> set[str]:
             if _state["thread"] is None or not _state["thread"].is_alive():
-                return cancel_with_status(context, "No training in progress")
+                return cancel_with_status(self, context, "No training in progress")
             _state["cancel"] = True
-            return finish_with_status(context, "Cancelling training…")
+            return finish_with_status(self, context, "Cancelling training…")
 
 
 CLASSES = (

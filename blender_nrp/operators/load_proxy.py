@@ -22,14 +22,14 @@ if bpy is not None:
         def execute(self, context: bpy.types.Context) -> set[str]:
             settings = context.scene.blender_nrp
             if not settings.model_path:
-                return cancel_with_status(context, "No model path selected")
+                return cancel_with_status(self, context, "No model path selected")
             model_path = Path(bpy.path.abspath(settings.model_path))
             if not model_path.exists():
-                return cancel_with_status(context, f"Model not found: {model_path}")
+                return cancel_with_status(self, context, f"Model not found: {model_path}")
             available, detail = torch_status()
             if not available:
                 proxy_runtime.clear()
-                return cancel_with_status(context, detail)
+                return cancel_with_status(self, context, detail)
             try:
                 from ..core.torch_proxy.model import TorchNRP
 
@@ -43,15 +43,17 @@ if bpy is not None:
                     with np.load(model_path) as npz:
                         if "format" in npz.files:
                             return cancel_with_status(
+                                self,
                                 context,
                                 "This model.pt is a V1 numpy-summary stub, not a torch "
                                 "proxy — re-train with Train Proxy",
                             )
                 except Exception:
                     pass
-                return cancel_with_status(context, f"Proxy load failed: {exc}")
+                return cancel_with_status(self, context, f"Proxy load failed: {exc}")
             proxy_runtime.set_model(model, str(model_path), model.light_type)
             return finish_with_status(
+                self,
                 context,
                 f"Loaded torch proxy ({model.light_type}, "
                 f"{model.parameter_count} params)",

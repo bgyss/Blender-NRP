@@ -8,50 +8,46 @@ except ModuleNotFoundError:  # pragma: no cover
     bpy = None
 
 if bpy is not None:
-    from .. import preview
-    from ..core.coords import BLENDER_Z_UP
+    from .. import light_build, preview
     from ._helpers import cancel_with_status, finish_with_status
 
-    def _stamp_light_props(context: bpy.types.Context, obj: bpy.types.Object) -> None:
-        obj["nrp_scene_id"] = context.scene.blender_nrp.scene_id
-        obj["nrp_camera_id"] = (
-            context.scene.blender_nrp.camera.name if context.scene.blender_nrp.camera else ""
-        )
-        obj["nrp_coordinate_system"] = BLENDER_Z_UP
-        obj["nrp_color"] = (1.0, 1.0, 1.0)
-        obj["nrp_intensity"] = 1.0
+    def _scene_ids(context: bpy.types.Context) -> tuple[str, str]:
+        settings = context.scene.blender_nrp
+        camera_id = settings.camera.name if settings.camera else ""
+        return settings.scene_id, camera_id
 
     class BLENDER_NRP_OT_create_sphere_light(bpy.types.Operator):
         bl_idname = "blender_nrp.create_sphere_light"
-        bl_label = "Create NRP Sphere Light"
-        bl_description = "Create a visible NRP sphere emitter object"
+        bl_label = "Add NRP Sphere Light"
+        bl_description = "Create a visible NRP sphere emitter object at the 3D cursor"
 
         def execute(self, context: bpy.types.Context) -> set[str]:
-            bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=0.25)
-            obj = context.object
-            obj.name = "NRP_Sphere_001"
-            obj["nrp_light_type"] = "sphere"
-            obj["nrp_radius"] = 0.25
-            _stamp_light_props(context, obj)
-            return finish_with_status(context, "Created NRP sphere light")
+            scene_id, camera_id = _scene_ids(context)
+            obj = light_build.create_sphere_light(
+                context,
+                location=tuple(context.scene.cursor.location),
+                scene_id=scene_id,
+                camera_id=camera_id,
+            )
+            return finish_with_status(self, context, f"Added NRP sphere light '{obj.name}'")
 
     class BLENDER_NRP_OT_create_quad_light(bpy.types.Operator):
         bl_idname = "blender_nrp.create_quad_light"
-        bl_label = "Create NRP Quad Light"
+        bl_label = "Add NRP Quad Light"
         bl_description = (
-            "Create a visible NRP rectangle emitter (its local +Z axis is the "
-            "emission normal — rotate the object to aim it)"
+            "Create a visible NRP rectangle emitter at the 3D cursor (its local +Z "
+            "axis is the emission normal — rotate the object to aim it)"
         )
 
         def execute(self, context: bpy.types.Context) -> set[str]:
-            bpy.ops.mesh.primitive_plane_add(size=1.0)
-            obj = context.object
-            obj.name = "NRP_Quad_001"
-            obj["nrp_light_type"] = "quad"
-            obj["nrp_width"] = 1.0
-            obj["nrp_height"] = 1.0
-            _stamp_light_props(context, obj)
-            return finish_with_status(context, "Created NRP quad light")
+            scene_id, camera_id = _scene_ids(context)
+            obj = light_build.create_quad_light(
+                context,
+                location=tuple(context.scene.cursor.location),
+                scene_id=scene_id,
+                camera_id=camera_id,
+            )
+            return finish_with_status(self, context, f"Added NRP quad light '{obj.name}'")
 
     class BLENDER_NRP_OT_relight_preview(bpy.types.Operator):
         bl_idname = "blender_nrp.relight_preview"
@@ -64,8 +60,8 @@ if bpy is not None:
         def execute(self, context: bpy.types.Context) -> set[str]:
             ok, message = preview.update_preview(context)
             if not ok:
-                return cancel_with_status(context, message)
-            return finish_with_status(context, message)
+                return cancel_with_status(self, context, message)
+            return finish_with_status(self, context, message)
 
 
 CLASSES = (

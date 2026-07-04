@@ -122,6 +122,8 @@ def run() -> None:
         # --- Stock backend still works (V1 fallback path).
         settings.backend = "stock_blender_hemi"
         assert_finished(bpy.ops.blender_nrp.bake_cache(), "Bake (stock)")
+        if "validated" not in settings.status.lower():
+            raise AssertionError(f"stock bake did not auto-validate: {settings.status}")
         report = validate_cache_bundle(Path(settings.cache_path), artifact_dir / "metadata.json")
         if not report.ok:
             raise AssertionError(f"stock cache validation failed: {report.errors}")
@@ -135,6 +137,8 @@ def run() -> None:
         report = validate_cache_bundle(cache_path, artifact_dir / "metadata.json")
         if not report.ok:
             raise AssertionError(f"cycles cache validation failed: {report.errors}")
+        if "validated" not in settings.status.lower():
+            raise AssertionError(f"cycles bake did not auto-validate: {settings.status}")
         bake_report = json.loads((artifact_dir / "bake_report.json").read_text())
         if bake_report["backend"] != "cycles_capture":
             raise AssertionError("bake_report backend mismatch")
@@ -160,6 +164,14 @@ def run() -> None:
             train_report = json.loads((artifact_dir / "train_report.json").read_text())
             if train_report["training_backend"] != "torch":
                 raise AssertionError("expected a torch training run")
+            # Training now auto-loads the proxy into the shared runtime.
+            from blender_nrp import proxy_runtime
+
+            if proxy_runtime.model is None:
+                raise AssertionError("proxy was not auto-loaded after training")
+            if "auto-loaded" not in settings.status:
+                raise AssertionError(f"train status omitted auto-load: {settings.status}")
+            # The explicit Load Proxy operator still works (idempotent re-load).
             assert_finished(bpy.ops.blender_nrp.load_proxy(), "Load Proxy")
         else:
             if train_result != {"CANCELLED"} or "PyTorch" not in settings.status:
@@ -172,6 +184,9 @@ def run() -> None:
         # --- Sphere + quad lights and the relight preview image.
         assert_finished(bpy.ops.blender_nrp.create_sphere_light(), "Create NRP Sphere Light")
         sphere = bpy.context.object
+        # Data-API creation (works from any editor) must produce a marked mesh object.
+        if sphere is None or sphere.type != "MESH" or sphere.get("nrp_light_type") != "sphere":
+            raise AssertionError(f"sphere light not created correctly: {sphere}")
         sphere.location = (0.0, -1.5, 2.0)
         sphere["nrp_radius"] = 0.35
         sphere["nrp_color"] = (1.0, 0.85, 0.65)
