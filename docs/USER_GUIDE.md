@@ -51,8 +51,12 @@ Install the development dependencies from the repository root when you want to r
 checks locally:
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev]"        # numpy + pytest + ruff
+python -m pip install -e ".[dev,torch]"  # additionally pulls in torch for proxy work
 ```
+
+(The `torch` extra only affects the command-line environment — Blender's bundled
+Python needs its own torch install, see Troubleshooting.)
 
 ## Build The Add-on Zip
 
@@ -103,6 +107,8 @@ Open `Scene Properties > Blender-NRP`.
     in an Image Editor) and writes `relight_preview.png`. The status line says whether
     the trained proxy (fast) or the exact cache gather produced the image.
   - Live Preview: auto-refresh the preview ~0.3 s after you stop moving an NRP light.
+  - Exposure: linear multiplier applied to the preview image (raise it if the
+    preview looks black at low light intensities).
   - Target Image + Solver Steps + `Solve`: inverse optimization (see below).
 - Interchange box: light JSON import/export with an Export Coords selector
   (`right_handed_y_up` for ComfyUI, `blender_z_up` for no conversion). Import converts
@@ -114,7 +120,8 @@ Open `Scene Properties > Blender-NRP`.
 1. Create or open a fixed-camera Blender scene and save the `.blend` file.
 2. In `Scene Properties > Blender-NRP`, set `Scene ID`, select the `Camera`, and set a
    small resolution such as `64 x 64` for the first run.
-3. Keep Backend at `Cycles Capture` with `Paths / Pixel = 32`, `Max Bounces = 4`.
+3. Keep Backend at `Cycles Capture` and `Max Bounces = 4`; lower `Paths / Pixel`
+   from the default 64 to 32 for a faster first run.
 4. Click `Bake Path Cache` and watch the progress in the status line (Esc cancels).
    `bake_report.json` includes an A/B PSNR against a real Cycles render of an emissive
    validation sphere — the honest agreement number, not a claim of exactness.
