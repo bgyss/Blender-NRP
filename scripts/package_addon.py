@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 PACKAGE_NAME = "Blender-NRP.zip"
-INCLUDE_DIRS = ("blender_nrp",)
+PACKAGE_DIR = ROOT / "blender_nrp"
 INCLUDE_FILES = ("blender_manifest.toml", "README.md", "LICENSE")
 
 
@@ -19,10 +19,13 @@ def main() -> None:
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for file_name in INCLUDE_FILES:
             archive.write(ROOT / file_name, file_name)
-        for dirname in INCLUDE_DIRS:
-            for path in sorted((ROOT / dirname).rglob("*")):
-                if path.is_file() and "__pycache__" not in path.parts:
-                    archive.write(path, path.relative_to(ROOT))
+        # Blender's extension system extracts the ZIP root directly into
+        # extensions/<repo>/<manifest id>/, so the add-on package *contents*
+        # (including __init__.py) must live at the archive root — not nested
+        # under a blender_nrp/ directory.
+        for path in sorted(PACKAGE_DIR.rglob("*")):
+            if path.is_file() and "__pycache__" not in path.parts:
+                archive.write(path, path.relative_to(PACKAGE_DIR))
     print(target)
 
 
