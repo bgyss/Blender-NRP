@@ -34,7 +34,7 @@ _pending: dict = {"deadline": None}
 
 def _load_cache_arrays(cache_path: Path):
     """mtime-cached arrays so dragging a light doesn't re-read the npz every tick."""
-    from blender_nrp.core.path_cache import load_arrays
+    from .core.path_cache import load_arrays
 
     mtime = cache_path.stat().st_mtime
     if _cache_state["path"] == str(cache_path) and _cache_state["mtime"] == mtime:
@@ -69,10 +69,10 @@ def _write_image_datablock(image_float: np.ndarray) -> None:
 
 def update_preview(context) -> tuple[bool, str]:
     """Recompute the relight preview. Returns (ok, status message)."""
-    from blender_nrp import proxy_runtime
-    from blender_nrp.core.gather import gather_hdr
-    from blender_nrp.core.images import write_png_rgb
-    from blender_nrp.core.light_objects import collect_rig_lights
+    from . import proxy_runtime
+    from .core.gather import gather_hdr
+    from .core.images import write_png_rgb
+    from .core.light_objects import collect_rig_lights
 
     settings = context.scene.blender_nrp
     if not settings.cache_path:
@@ -94,7 +94,7 @@ def update_preview(context) -> tuple[bool, str]:
         rig_types = {light.light_type for light in lights}
         if rig_types == {proxy_runtime.model_light_type}:
             try:
-                from blender_nrp.core.torch_proxy.relight import proxy_relight
+                from .core.torch_proxy.relight import proxy_relight
 
                 hdr = proxy_relight(proxy_runtime.model, arrays, lights)
                 source = "trained proxy (fast)"

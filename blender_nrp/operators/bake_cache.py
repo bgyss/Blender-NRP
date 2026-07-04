@@ -10,9 +10,8 @@ except ModuleNotFoundError:  # pragma: no cover
 if bpy is not None:
     from pathlib import Path
 
-    from blender_nrp.backends import cycles_capture, stock_blender_hemi
-    from blender_nrp.backends.interface import BakeSettings
-
+    from ..backends import cycles_capture, stock_blender_hemi
+    from ..backends.interface import BakeSettings
     from ._helpers import cancel_with_status, finish_with_status
 
     def _settings_from_scene(context: bpy.types.Context) -> BakeSettings:

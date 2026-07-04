@@ -9,7 +9,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     bpy = None
 
-from blender_nrp.core.path_cache import validate_npz
+from ..core.path_cache import validate_npz
 
 if bpy is not None:
     from ._helpers import cancel_with_status, finish_with_status

@@ -9,8 +9,8 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     bpy = None
 
-from blender_nrp.core.coords import BLENDER_Z_UP, convert_rig
-from blender_nrp.core.lights import LightRig, QuadLight
+from ..core.coords import BLENDER_Z_UP, convert_rig
+from ..core.lights import LightRig, QuadLight
 
 if bpy is not None:
     from mathutils import Vector

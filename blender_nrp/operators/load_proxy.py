@@ -10,9 +10,8 @@ except ModuleNotFoundError:  # pragma: no cover
 if bpy is not None:
     from pathlib import Path
 
-    from blender_nrp import proxy_runtime
-    from blender_nrp.core.torch_proxy import torch_status
-
+    from .. import proxy_runtime
+    from ..core.torch_proxy import torch_status
     from ._helpers import cancel_with_status, finish_with_status
 
     class BLENDER_NRP_OT_load_proxy(bpy.types.Operator):
@@ -32,7 +31,7 @@ if bpy is not None:
                 proxy_runtime.clear()
                 return cancel_with_status(context, detail)
             try:
-                from blender_nrp.core.torch_proxy.model import TorchNRP
+                from ..core.torch_proxy.model import TorchNRP
 
                 model = TorchNRP.load(str(model_path))
             except Exception as exc:

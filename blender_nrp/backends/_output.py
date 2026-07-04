@@ -7,10 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from blender_nrp.core.images import depth_to_rgb, normal_to_rgb, write_png_rgb
-from blender_nrp.core.metadata import NRPMetadata
-from blender_nrp.core.path_cache import SCHEMA_VERSION, save_arrays, validate_arrays
-
+from ..core.images import depth_to_rgb, normal_to_rgb, write_png_rgb
+from ..core.metadata import NRPMetadata
+from ..core.path_cache import SCHEMA_VERSION, save_arrays, validate_arrays
 from .interface import BakeResult, BakeSettings
 
 

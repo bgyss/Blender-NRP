@@ -18,16 +18,15 @@ if bpy is not None:
     import traceback
     from pathlib import Path
 
-    from blender_nrp.core.path_cache import load_arrays
-    from blender_nrp.core.reports import write_json_report
-    from blender_nrp.core.torch_proxy import torch_status
-
+    from ..core.path_cache import load_arrays
+    from ..core.reports import write_json_report
+    from ..core.torch_proxy import torch_status
     from ._helpers import cancel_with_status, finish_with_status
 
     _state: dict = {"thread": None, "progress": "", "report": None, "error": None, "cancel": False}
 
     def _run_training(arrays, model_path: Path, iterations: int, device: str) -> None:
-        from blender_nrp.core.torch_proxy.train import train_proxy
+        from ..core.torch_proxy.train import train_proxy
 
         try:
             report = train_proxy(
@@ -94,7 +93,7 @@ if bpy is not None:
             model_path = cache_path.parent / "model.pt"
 
             if bpy.app.background:
-                from blender_nrp.core.torch_proxy.train import train_proxy
+                from ..core.torch_proxy.train import train_proxy
 
                 try:
                     report = train_proxy(

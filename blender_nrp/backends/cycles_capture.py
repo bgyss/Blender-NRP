@@ -27,10 +27,9 @@ from typing import Any
 
 import numpy as np
 
-from blender_nrp.core.gather import gather_hdr
-from blender_nrp.core.lights import SphereLight
-from blender_nrp.core.path_tracer import AnalyticRoomCaster, trace_camera_paths
-
+from ..core.gather import gather_hdr
+from ..core.lights import SphereLight
+from ..core.path_tracer import AnalyticRoomCaster, trace_camera_paths
 from ._output import write_bake_outputs
 from .interface import BakeResult, BakeSettings
 

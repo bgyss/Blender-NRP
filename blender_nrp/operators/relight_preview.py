@@ -8,9 +8,8 @@ except ModuleNotFoundError:  # pragma: no cover
     bpy = None
 
 if bpy is not None:
-    from blender_nrp import preview
-    from blender_nrp.core.coords import BLENDER_Z_UP
-
+    from .. import preview
+    from ..core.coords import BLENDER_Z_UP
     from ._helpers import cancel_with_status, finish_with_status
 
     def _stamp_light_props(context: bpy.types.Context, obj: bpy.types.Object) -> None:

@@ -9,9 +9,9 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     bpy = None
 
-from blender_nrp.core.coords import BLENDER_Z_UP, convert_rig
-from blender_nrp.core.light_objects import collect_rig_lights
-from blender_nrp.core.lights import LightRig
+from ..core.coords import BLENDER_Z_UP, convert_rig
+from ..core.light_objects import collect_rig_lights
+from ..core.lights import LightRig
 
 if bpy is not None:
     from ._helpers import cancel_with_status, finish_with_status

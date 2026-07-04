@@ -19,13 +19,12 @@ if bpy is not None:
 
     import numpy as np
 
-    from blender_nrp import proxy_runtime
-    from blender_nrp.core.light_objects import apply_light_to_object, light_from_object
-    from blender_nrp.core.lights import LightRig, light_from_dict
-    from blender_nrp.core.path_cache import load_arrays
-    from blender_nrp.core.reports import write_json_report
-    from blender_nrp.core.torch_proxy import torch_status
-
+    from .. import proxy_runtime
+    from ..core.light_objects import apply_light_to_object, light_from_object
+    from ..core.lights import LightRig, light_from_dict
+    from ..core.path_cache import load_arrays
+    from ..core.reports import write_json_report
+    from ..core.torch_proxy import torch_status
     from ._helpers import cancel_with_status, finish_with_status
 
     def _load_target(path: Path, height: int, width: int) -> np.ndarray:
@@ -91,7 +90,7 @@ if bpy is not None:
             )
             try:
                 if use_proxy:
-                    from blender_nrp.core.torch_proxy.optimize import optimize_lights
+                    from ..core.torch_proxy.optimize import optimize_lights
 
                     report = optimize_lights(
                         proxy_runtime.model,
@@ -101,7 +100,7 @@ if bpy is not None:
                         steps=settings.optimize_steps,
                     )
                 else:
-                    from blender_nrp.core.optimize_fallback import optimize_lights_fallback
+                    from ..core.optimize_fallback import optimize_lights_fallback
 
                     report = optimize_lights_fallback(arrays, lights, target)
                     if not torch_ok:
