@@ -9,3 +9,6 @@ output/
 *.egg-info/
 *.zip
 
+# macOS
+.DS_Store
+
