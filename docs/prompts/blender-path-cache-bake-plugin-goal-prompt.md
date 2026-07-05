@@ -25,7 +25,8 @@ The add-on should work in stock Blender first. It should clearly separate the st
 
 Use these local projects as behavioral and schema prior art, not as code that must be copied directly:
 
-- `nrp`: the reference Neural Render Proxy implementation. It defines the SAMPLEPATHS / GATHERLIGHT split, path-cache vocabulary, sphere and quad light abstractions, PyTorch training, proxy relighting, and inverse-light optimization.
+- Sancho et al., [*Neural Render Proxies for Interactive and Differentiable Lighting*](https://studios.disneyresearch.com/2026/07/01/neural-render-proxies-for-interactive-and-differentiable-lighting/): the original Disney Research paper defining the SAMPLEPATHS / GATHERLIGHT split, neural proxy relighting, and differentiable inverse-lighting workflow.
+- [`bgyss/nrp`](https://github.com/bgyss/nrp): the sample reimplementation and reference for this add-on's behavior and file formats. It defines the path-cache vocabulary, sphere and quad light abstractions, PyTorch training, proxy relighting, and inverse-light optimization.
 - `ComfyUI-NeuralRenderProxy`: the current node-based UI and interchange surface. It defines ComfyUI nodes such as `NRP Load Path Cache`, `NRP Train Proxy`, `NRP Sphere Light`, `NRP Combine Lights`, `NRP Relight`, `NRP Optimize Lights From Target`, `NRP Save Lights`, and `NRP Load Lights`.
 
 The Blender add-on should mirror the compatible data contracts from those projects:
@@ -129,6 +130,8 @@ Do not commit production `.blend` files, trained weights, or generated caches. S
 
 Useful upstream references:
 
+- Disney Research Neural Render Proxies paper page: `https://studios.disneyresearch.com/2026/07/01/neural-render-proxies-for-interactive-and-differentiable-lighting/`
+- bgyss/nrp sample reimplementation: `https://github.com/bgyss/nrp`
 - Blender Studio Spring project: `https://studio.blender.org/projects/spring/`
 - Blender Studio Sprite Fright project: `https://studio.blender.org/projects/sprite-fright/`
 - Khronos Sponza glTF fallback: `https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Sponza`

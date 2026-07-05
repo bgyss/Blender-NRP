@@ -1,5 +1,14 @@
 # Development Guide
 
+## Lineage
+
+Blender-NRP implements a Blender-facing workflow derived from Sancho et al.'s Disney
+Research paper
+[*Neural Render Proxies for Interactive and Differentiable Lighting*](https://studios.disneyresearch.com/2026/07/01/neural-render-proxies-for-interactive-and-differentiable-lighting/).
+Use [`bgyss/nrp`](https://github.com/bgyss/nrp) as the behavioral and file-format
+reference for path caches, gather semantics, packed layouts, light JSON, torch proxy
+artifacts, and inverse-light optimization behavior.
+
 ## Blender Add-on Practices
 
 This repository follows a few constraints that make Blender add-ons easier to maintain:

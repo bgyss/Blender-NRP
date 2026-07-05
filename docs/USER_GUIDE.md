@@ -3,10 +3,28 @@
 This guide covers installing the Blender-NRP add-on, running the built-in fixture workflow,
 and using the Blender panel for a fixed-camera bake, proxy training, and relight pass.
 
+Blender-NRP is based on Sancho et al.'s Disney Research paper
+[*Neural Render Proxies for Interactive and Differentiable Lighting*](https://studios.disneyresearch.com/2026/07/01/neural-render-proxies-for-interactive-and-differentiable-lighting/)
+and derives its implementation contracts from the
+[`bgyss/nrp`](https://github.com/bgyss/nrp) sample reimplementation.
+
 Blender-NRP V2 replaces the V1 approximations with real implementations: multi-bounce
 path capture with Cycles G-buffer passes, genuine PyTorch proxy training, gradient-based
 inverse light optimization, quad lights, packed caches, and a live in-Blender preview.
 Every remaining approximation is named in the corresponding report JSON, not hidden.
+
+## Paper And Reference Implementation
+
+The original paper splits relighting into two stages: `SAMPLEPATHS`, an expensive
+light-agnostic path pass done once for a fixed scene/camera, and `GATHERLIGHT`, a
+cheaper light-dependent emission pass. A neural proxy learns that gather behavior so
+lighting can be evaluated and optimized interactively.
+
+`Blender-NRP` brings that workflow into Blender. It uses
+[`bgyss/nrp`](https://github.com/bgyss/nrp) as the wire-format reference for
+`path_cache.npz`, `metadata.json`, light rig JSON, packed caches, and `model.pt`
+`TorchNRP` artifacts. The Blender add-on is still correctness-first: reports state
+remaining approximations and compatibility gaps explicitly.
 
 ## What The Add-on Does
 

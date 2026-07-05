@@ -23,7 +23,12 @@ Blender.**
 
 ## Prior Art to Reuse
 
-- `nrp` (local sibling repo) — now the authoritative reference. Since the V1 spec it
+- Sancho et al., [*Neural Render Proxies for Interactive and Differentiable Lighting*](https://studios.disneyresearch.com/2026/07/01/neural-render-proxies-for-interactive-and-differentiable-lighting/) —
+  the original Disney Research paper that defines the light-agnostic path pass,
+  light-dependent gather pass, neural proxy, and differentiable inverse-lighting
+  workflow this add-on adapts into Blender.
+- [`bgyss/nrp`](https://github.com/bgyss/nrp) — now the authoritative implementation
+  reference for this add-on. Since the V1 spec it
   added: schema v2 (`schema_version` key, optional homogeneous-medium metadata), a
   packed cache layout (fp16 geometry + rgb9e5 throughput, auto-detected on load),
   `QuadLight` + `segment_hits_quad`, batched torch GATHERLIGHT with device-resident

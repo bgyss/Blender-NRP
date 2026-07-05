@@ -2,6 +2,11 @@
 
 `Blender-NRP` is a Blender add-on for baking Neural Render Proxy path caches and relighting fixed-camera scenes inside Blender.
 
+The project is based on Sancho et al.'s Disney Research paper
+[*Neural Render Proxies for Interactive and Differentiable Lighting*](https://studios.disneyresearch.com/2026/07/01/neural-render-proxies-for-interactive-and-differentiable-lighting/)
+and derives its data contracts and torch proxy behavior from the
+[`bgyss/nrp`](https://github.com/bgyss/nrp) sample reimplementation.
+
 V2 targets parity with the current `nrp` reference, still prioritizing correctness over real-time performance:
 
 - bake a light-agnostic multi-bounce path cache (Cycles G-buffer passes, escape segments, optional packed fp16 + rgb9e5 layout) with a modal, cancellable operator,
@@ -28,6 +33,18 @@ tests/               Pure-Python tests
 examples/            Scene manifests and small examples
 docs/prompts/        Goal prompts and implementation notes
 ```
+
+## Lineage And Compatibility
+
+The original Neural Render Proxies paper decouples rendering into a light-agnostic
+path pass and a light-dependent gather pass, then trains a compact neural proxy for
+interactive and differentiable relighting. `Blender-NRP` adapts that workflow into a
+native Blender add-on.
+
+The implementation follows [`bgyss/nrp`](https://github.com/bgyss/nrp) as the reference
+for path-cache vocabulary, gather semantics, packed cache layout, light JSON shape,
+and `TorchNRP` model artifacts. The add-on also keeps ComfyUI interchange support for
+light rigs and exported cache bundles.
 
 ## Development
 
