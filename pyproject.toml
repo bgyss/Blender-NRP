@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blender-nrp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Blender add-on for Neural Render Proxy baking and relighting"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,6 +14,7 @@ dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
+torch = ["torch>=2.2"]
 
 [tool.setuptools]
 packages = ["blender_nrp", "blender_nrp.backends", "blender_nrp.core", "blender_nrp.operators", "blender_nrp.ui"]

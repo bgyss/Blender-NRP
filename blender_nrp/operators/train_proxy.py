@@ -1,4 +1,10 @@
-"""Train proxy operator."""
+"""Train proxy operator: real torch training on a background thread.
+
+The worker thread only touches numpy/torch state; all bpy access (status updates,
+report writing) happens on the main thread via `bpy.app.timers`. In background mode
+(no event loop) training runs synchronously. Without torch installed the operator
+reports the missing dependency clearly and leaves the gather preview path intact.
+"""
 
 from __future__ import annotations
 
@@ -8,33 +14,148 @@ except ModuleNotFoundError:  # pragma: no cover
     bpy = None
 
 if bpy is not None:
+    import threading
+    import traceback
     from pathlib import Path
 
-    from blender_nrp.core.proxy import train_basic_proxy
-
+    from ..core.path_cache import load_arrays
+    from ..core.reports import write_json_report
+    from ..core.torch_proxy import torch_status
     from ._helpers import cancel_with_status, finish_with_status
+
+    _state: dict = {"thread": None, "progress": "", "report": None, "error": None, "cancel": False}
+
+    def _autoload_proxy(model_path: Path) -> str:
+        """Load the freshly trained model into the shared runtime so Preview/Solve
+        can use it immediately. Returns a status suffix (never raises)."""
+        from .. import proxy_runtime
+
+        try:
+            from ..core.torch_proxy.model import TorchNRP
+
+            model = TorchNRP.load(str(model_path))
+        except Exception as exc:  # keep the train result; just report the load miss
+            proxy_runtime.clear()
+            return f" — auto-load failed: {exc}"
+        proxy_runtime.set_model(model, str(model_path), model.light_type)
+        return f" — proxy auto-loaded ({model.light_type})"
+
+    def _run_training(arrays, model_path: Path, iterations: int, device: str) -> None:
+        from ..core.torch_proxy.train import train_proxy
+
+        try:
+            report = train_proxy(
+                arrays,
+                model_path,
+                iterations=iterations,
+                device=device,
+                progress=lambda it, total, loss: _state.__setitem__(
+                    "progress", f"Training… {it}/{total} (loss {loss:.4f})"
+                ),
+                should_cancel=lambda: _state["cancel"],
+            )
+            _state["report"] = report
+        except Exception:
+            _state["error"] = traceback.format_exc(limit=2)
+
+    def _poll_training() -> float | None:
+        """Main-thread timer: mirror worker progress into the scene status."""
+        scene = bpy.context.scene
+        if scene is None:
+            return 0.5
+        settings = scene.blender_nrp
+        if _state["error"] is not None:
+            settings.status = f"Proxy training failed: {_state['error'].splitlines()[-1]}"
+            _state["thread"] = None
+            return None
+        if _state["report"] is not None:
+            report = _state["report"]
+            model_path = Path(report["model_path"])
+            write_json_report(model_path.parent / "train_report.json", report)
+            settings.model_path = str(model_path)
+            if report.get("cancelled"):
+                settings.status = "Training cancelled (partial model saved)"
+            else:
+                suffix = _autoload_proxy(model_path)
+                settings.status = (
+                    f"Trained proxy on {report['device']} in {report['train_seconds']:.1f}s "
+                    f"(val PSNR {report['val_psnr_db_mean']:.1f} dB){suffix}"
+                )
+            _state["thread"] = None
+            return None
+        if _state["progress"]:
+            settings.status = _state["progress"]
+        return 0.25
 
     class BLENDER_NRP_OT_train_proxy(bpy.types.Operator):
         bl_idname = "blender_nrp.train_proxy"
         bl_label = "Train Proxy"
-        bl_description = "Train a compact proxy from the selected path cache"
+        bl_description = "Train a torch neural proxy from the selected path cache"
 
         def execute(self, context: bpy.types.Context) -> set[str]:
             settings = context.scene.blender_nrp
+            if _state["thread"] is not None and _state["thread"].is_alive():
+                return cancel_with_status(self, context, "Training already running")
             if not settings.cache_path:
-                return cancel_with_status(context, "No cache path selected")
+                return cancel_with_status(self, context, "No cache path selected")
+            available, detail = torch_status()
+            if not available:
+                return cancel_with_status(self, context, detail)
             cache_path = Path(bpy.path.abspath(settings.cache_path))
-            output_dir = cache_path.parent
-            model_path = output_dir / "model.pt"
             try:
-                train_basic_proxy(cache_path, model_path, output_dir / "train_report.json")
+                arrays = load_arrays(cache_path).arrays
             except Exception as exc:
-                return cancel_with_status(context, f"Proxy training failed: {exc}")
-            settings.model_path = str(model_path)
-            return finish_with_status(context, f"Trained proxy {model_path}")
+                return cancel_with_status(self, context, f"Cache load failed: {exc}")
+            model_path = cache_path.parent / "model.pt"
+
+            if bpy.app.background:
+                from ..core.torch_proxy.train import train_proxy
+
+                try:
+                    report = train_proxy(
+                        arrays,
+                        model_path,
+                        iterations=settings.train_iterations,
+                        device=settings.train_device,
+                    )
+                except Exception as exc:
+                    return cancel_with_status(self, context, f"Proxy training failed: {exc}")
+                write_json_report(model_path.parent / "train_report.json", report)
+                settings.model_path = str(model_path)
+                suffix = _autoload_proxy(model_path)
+                return finish_with_status(
+                    self,
+                    context,
+                    f"Trained proxy on {report['device']} "
+                    f"(val PSNR {report['val_psnr_db_mean']:.1f} dB){suffix}",
+                )
+
+            _state.update({"progress": "", "report": None, "error": None, "cancel": False})
+            thread = threading.Thread(
+                target=_run_training,
+                args=(arrays, model_path, settings.train_iterations, settings.train_device),
+                daemon=True,
+            )
+            _state["thread"] = thread
+            thread.start()
+            bpy.app.timers.register(_poll_training, first_interval=0.25)
+            return finish_with_status(self, context, "Training started in background…")
+
+    class BLENDER_NRP_OT_cancel_train(bpy.types.Operator):
+        bl_idname = "blender_nrp.cancel_train"
+        bl_label = "Cancel Training"
+        bl_description = "Stop the background proxy training after the current iteration"
+
+        def execute(self, context: bpy.types.Context) -> set[str]:
+            if _state["thread"] is None or not _state["thread"].is_alive():
+                return cancel_with_status(self, context, "No training in progress")
+            _state["cancel"] = True
+            return finish_with_status(self, context, "Cancelling training…")
 
 
-CLASSES = (BLENDER_NRP_OT_train_proxy,) if bpy is not None else ()
+CLASSES = (
+    (BLENDER_NRP_OT_train_proxy, BLENDER_NRP_OT_cancel_train) if bpy is not None else ()
+)
 
 
 def register() -> None:

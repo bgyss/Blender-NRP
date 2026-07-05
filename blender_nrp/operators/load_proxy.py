@@ -1,4 +1,4 @@
-"""Load proxy operator."""
+"""Load proxy operator: torch TorchNRP artifacts, with V1 numpy-summary detection."""
 
 from __future__ import annotations
 
@@ -10,28 +10,54 @@ except ModuleNotFoundError:  # pragma: no cover
 if bpy is not None:
     from pathlib import Path
 
-    from blender_nrp.core.proxy import load_basic_proxy
-
+    from .. import proxy_runtime
+    from ..core.torch_proxy import torch_status
     from ._helpers import cancel_with_status, finish_with_status
 
     class BLENDER_NRP_OT_load_proxy(bpy.types.Operator):
         bl_idname = "blender_nrp.load_proxy"
         bl_label = "Load Proxy"
-        bl_description = "Load an existing NRP proxy model"
+        bl_description = "Load a trained NRP proxy model for preview and optimization"
 
         def execute(self, context: bpy.types.Context) -> set[str]:
             settings = context.scene.blender_nrp
             if not settings.model_path:
-                return cancel_with_status(context, "No model path selected")
+                return cancel_with_status(self, context, "No model path selected")
             model_path = Path(bpy.path.abspath(settings.model_path))
+            if not model_path.exists():
+                return cancel_with_status(self, context, f"Model not found: {model_path}")
+            available, detail = torch_status()
+            if not available:
+                proxy_runtime.clear()
+                return cancel_with_status(self, context, detail)
             try:
-                payload = load_basic_proxy(model_path)
+                from ..core.torch_proxy.model import TorchNRP
+
+                model = TorchNRP.load(str(model_path))
             except Exception as exc:
-                return cancel_with_status(context, f"Proxy load failed: {exc}")
-            proxy_format = payload.get("format")
-            if proxy_format is None:
-                return cancel_with_status(context, "Proxy load failed: missing format")
-            return finish_with_status(context, f"Loaded proxy {model_path}")
+                proxy_runtime.clear()
+                # V1 wrote a numpy-summary artifact under the same name.
+                try:
+                    import numpy as np
+
+                    with np.load(model_path) as npz:
+                        if "format" in npz.files:
+                            return cancel_with_status(
+                                self,
+                                context,
+                                "This model.pt is a V1 numpy-summary stub, not a torch "
+                                "proxy — re-train with Train Proxy",
+                            )
+                except Exception:
+                    pass
+                return cancel_with_status(self, context, f"Proxy load failed: {exc}")
+            proxy_runtime.set_model(model, str(model_path), model.light_type)
+            return finish_with_status(
+                self,
+                context,
+                f"Loaded torch proxy ({model.light_type}, "
+                f"{model.parameter_count} params)",
+            )
 
 
 CLASSES = (BLENDER_NRP_OT_load_proxy,) if bpy is not None else ()

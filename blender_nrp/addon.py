@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import panels, properties
+from . import panels, preview, properties
 from .operators import (
     bake_cache,
     export_lights,
@@ -13,6 +13,7 @@ from .operators import (
     train_proxy,
     validate_cache,
 )
+from .ui import light_panel
 
 MODULES = (
     properties,
@@ -24,6 +25,8 @@ MODULES = (
     optimize_lights,
     import_lights,
     export_lights,
+    preview,
+    light_panel,
     panels,
 )
 
@@ -36,4 +39,3 @@ def register() -> None:
 def unregister() -> None:
     for module in reversed(MODULES):
         module.unregister()
-
