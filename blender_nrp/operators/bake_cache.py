@@ -28,6 +28,7 @@ if bpy is not None:
             max_bounces=settings.max_bounces,
             packed=settings.packed_cache,
             reference_check=True,
+            tracer_engine=settings.tracer_engine,
         )
 
     class BLENDER_NRP_OT_bake_cache(bpy.types.Operator):

@@ -77,7 +77,7 @@ def update_preview(context) -> tuple[bool, str]:
     from . import proxy_runtime
     from .core.gather import gather_hdr
     from .core.images import write_png_rgb
-    from .core.light_objects import collect_rig_lights
+    from .core.light_objects import collect_visible_rig_lights
 
     settings = context.scene.blender_nrp
     if not settings.cache_path:
@@ -85,7 +85,7 @@ def update_preview(context) -> tuple[bool, str]:
     cache_path = Path(bpy.path.abspath(settings.cache_path))
     if not cache_path.exists():
         return False, f"Cache not found: {cache_path}"
-    lights = tuple(collect_rig_lights(context.scene.objects))
+    lights = tuple(collect_visible_rig_lights(context.scene.objects))
     if not lights:
         return False, "No NRP lights in scene"
     try:

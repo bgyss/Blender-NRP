@@ -58,6 +58,19 @@ def collect_rig_lights(objects: Any) -> list[AnyLight]:
     return lights
 
 
+def collect_visible_rig_lights(objects: Any) -> list[AnyLight]:
+    """Gather-time light masks matching gaffer enable/solo/mute semantics."""
+    candidates = [obj for obj in objects if light_from_object(obj) is not None]
+    solos = [obj for obj in candidates if bool(obj.get("nrp_solo", False))]
+    selected = solos if solos else candidates
+    return [
+        light
+        for obj in selected
+        if bool(obj.get("nrp_enabled", True)) and not bool(obj.get("nrp_muted", False))
+        if (light := light_from_object(obj)) is not None
+    ]
+
+
 def apply_light_to_object(obj: Any, light: AnyLight) -> None:
     """Write solved light parameters back onto the Blender object.
 

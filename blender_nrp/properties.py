@@ -9,6 +9,20 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only inside Blender.
 
 
 if bpy is not None:
+    from .core.pipeline import resolve_preset
+
+    def _apply_quality_preset(settings, context) -> None:
+        if context is None or context.scene is None:
+            return
+        render = context.scene.render
+        width, height, budget = resolve_preset(
+            settings.quality_preset, render.resolution_x, render.resolution_y
+        )
+        settings.resolution_x = width
+        settings.resolution_y = height
+        settings.paths_per_pixel = budget.paths_per_pixel
+        settings.max_bounces = budget.max_bounces
+        settings.train_iterations = budget.train_iterations
 
     class BlenderNRPSettings(bpy.types.PropertyGroup):
         scene_id: bpy.props.StringProperty(
@@ -47,7 +61,10 @@ if bpy is not None:
         )
         compute: bpy.props.EnumProperty(
             name="Compute",
-            items=(("local_subprocess", "This Machine", "Run the worker outside Blender"),),
+            items=(
+                ("local_subprocess", "This Machine", "Run the worker outside Blender"),
+                ("ssh", "SSH / LAN Node", "Submit the same job bundle through SSH and rsync"),
+            ),
             default="local_subprocess",
         )
         quality_preset: bpy.props.EnumProperty(
@@ -58,10 +75,27 @@ if bpy is not None:
                 ("final", "Final", "Higher budget; use remote compute when available"),
             ),
             default="draft",
+            update=_apply_quality_preset,
+        )
+        tracer_engine: bpy.props.EnumProperty(
+            name="Tracer",
+            items=(
+                ("auto", "Auto", "Use torch analytic fixture tracing when available"),
+                ("python", "Python", "Use the V2 CPU ray-cast tracer"),
+                (
+                    "torch_analytic",
+                    "Torch Analytic",
+                    "Require the device-side analytic fixture tracer",
+                ),
+            ),
+            default="auto",
         )
         show_advanced: bpy.props.BoolProperty(name="Advanced", default=False)
         pipeline_settings_hash: bpy.props.StringProperty(name="Pipeline Settings Hash", default="")
         pipeline_scene_hash: bpy.props.StringProperty(name="Pipeline Scene Hash", default="")
+        snapshot_name: bpy.props.StringProperty(name="Snapshot", default="Look 01")
+        snapshot_a: bpy.props.StringProperty(name="A", default="")
+        snapshot_b: bpy.props.StringProperty(name="B", default="")
         segment_count: bpy.props.IntProperty(
             name="Hemisphere Segments",
             default=16,

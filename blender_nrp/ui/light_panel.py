@@ -17,6 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only inside Blender.
 
 
 if bpy is not None:
+    from ..core.lighting import intensity_to_stops, kelvin_to_rgb, stops_to_intensity
 
     def _tag_update(obj: bpy.types.Object) -> None:
         """Notify the depsgraph that this object changed (drives live preview)."""
@@ -28,6 +29,38 @@ if bpy is not None:
     def _set_intensity(obj: bpy.types.Object, value: float) -> None:
         obj["nrp_intensity"] = float(value)
         _tag_update(obj)
+
+    def _get_stops(obj: bpy.types.Object) -> float:
+        return intensity_to_stops(max(_get_intensity(obj), 1e-9))
+
+    def _set_stops(obj: bpy.types.Object, value: float) -> None:
+        _set_intensity(obj, stops_to_intensity(float(value)))
+
+    def _get_kelvin(obj: bpy.types.Object) -> float:
+        return float(obj.get("nrp_kelvin", 6500.0))
+
+    def _set_kelvin(obj: bpy.types.Object, value: float) -> None:
+        obj["nrp_kelvin"] = float(value)
+        obj["nrp_color"] = list(kelvin_to_rgb(float(value), _get_tint(obj)))
+        _tag_update(obj)
+
+    def _get_tint(obj: bpy.types.Object) -> float:
+        return float(obj.get("nrp_tint", 0.0))
+
+    def _set_tint(obj: bpy.types.Object, value: float) -> None:
+        obj["nrp_tint"] = float(value)
+        obj["nrp_color"] = list(kelvin_to_rgb(_get_kelvin(obj), float(value)))
+        _tag_update(obj)
+
+    def _get_flag(name: str):
+        return lambda obj: bool(obj.get(name, False))
+
+    def _set_flag(name: str):
+        def setter(obj: bpy.types.Object, value: bool) -> None:
+            obj[name] = bool(value)
+            _tag_update(obj)
+
+        return setter
 
     def _get_color(obj: bpy.types.Object) -> tuple[float, float, float]:
         c = obj.get("nrp_color", (1.0, 1.0, 1.0))
@@ -73,6 +106,53 @@ if bpy is not None:
                 min=0.0,
                 soft_max=100.0,
                 default=1.0,
+            ),
+        ),
+        (
+            "nrp_stops_prop",
+            bpy.props.FloatProperty(
+                name="Stops (EV)",
+                description="Intensity relative to 1.0 in exposure stops",
+                get=_get_stops,
+                set=_set_stops,
+                soft_min=-12.0,
+                soft_max=12.0,
+                default=0.0,
+            ),
+        ),
+        (
+            "nrp_kelvin_prop",
+            bpy.props.FloatProperty(
+                name="Temperature", get=_get_kelvin, set=_set_kelvin,
+                min=1000.0, max=40000.0, default=6500.0,
+            ),
+        ),
+        (
+            "nrp_tint_prop",
+            bpy.props.FloatProperty(
+                name="Tint", get=_get_tint, set=_set_tint,
+                min=-1.0, max=1.0, default=0.0,
+            ),
+        ),
+        (
+            "nrp_enabled_prop",
+            bpy.props.BoolProperty(
+                name="Enabled",
+                get=_get_flag("nrp_enabled"),
+                set=_set_flag("nrp_enabled"),
+                default=True,
+            ),
+        ),
+        (
+            "nrp_mute_prop",
+            bpy.props.BoolProperty(
+                name="Mute", get=_get_flag("nrp_muted"), set=_set_flag("nrp_muted"), default=False,
+            ),
+        ),
+        (
+            "nrp_solo_prop",
+            bpy.props.BoolProperty(
+                name="Solo", get=_get_flag("nrp_solo"), set=_set_flag("nrp_solo"), default=False,
             ),
         ),
         (
@@ -149,7 +229,17 @@ if bpy is not None:
                 icon="LIGHT_POINT" if kind == "sphere" else "LIGHT_AREA",
             )
             layout.prop(obj, "nrp_intensity_prop")
+            layout.prop(obj, "nrp_stops_prop")
+            row = layout.row(align=True)
+            row.prop(obj, "nrp_enabled_prop", toggle=True)
+            row.prop(obj, "nrp_solo_prop", toggle=True)
+            row.prop(obj, "nrp_mute_prop", toggle=True)
+            layout.separator()
+            layout.label(text="Color")
             layout.prop(obj, "nrp_color_prop")
+            row = layout.row(align=True)
+            row.prop(obj, "nrp_kelvin_prop")
+            row.prop(obj, "nrp_tint_prop")
             if kind == "sphere":
                 layout.prop(obj, "nrp_radius_prop")
             elif kind == "quad":

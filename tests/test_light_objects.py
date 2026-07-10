@@ -5,6 +5,7 @@ from __future__ import annotations
 from blender_nrp.core.light_objects import (
     apply_light_to_object,
     collect_rig_lights,
+    collect_visible_rig_lights,
     light_from_object,
 )
 from blender_nrp.core.lights import QuadLight, SphereLight
@@ -128,3 +129,13 @@ def test_radius_and_size_change_round_trips():
     q = light_from_object(quad)
     assert q.width == 2.5
     assert q.height == 3.0
+
+
+def test_gaffer_enable_solo_and_mute_masks():
+    first = FakeObject(nrp_light_type="sphere", nrp_color=(1, 1, 1), nrp_intensity=1.0)
+    second = FakeObject(nrp_light_type="sphere", nrp_color=(1, 1, 1), nrp_intensity=2.0)
+    assert len(collect_visible_rig_lights([first, second])) == 2
+    second["nrp_solo"] = True
+    assert [light.intensity for light in collect_visible_rig_lights([first, second])] == [2.0]
+    second["nrp_muted"] = True
+    assert collect_visible_rig_lights([first, second]) == []

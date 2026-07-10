@@ -87,6 +87,7 @@ if bpy is not None:
             box = layout.box()
             self._stage(box, "1 · Path Cache", cache_ready, "baked", "not baked")
             box.prop(settings, "backend", text="")
+            box.prop(settings, "tracer_engine")
             if settings.backend == "cycles_capture":
                 row = box.row(align=True)
                 row.prop(settings, "paths_per_pixel")
@@ -137,6 +138,19 @@ if bpy is not None:
             row = sub.row(align=True)
             row.prop(settings, "optimize_steps")
             row.operator("blender_nrp.optimize_lights", text="Solve", icon="SHADERFX")
+            sub = box.column(align=True)
+            sub.label(text="Rig Snapshots")
+            row = sub.row(align=True)
+            row.prop(settings, "snapshot_name", text="")
+            row.operator("blender_nrp.save_rig_snapshot", text="Save", icon="FILE_TICK")
+            row = sub.row(align=True)
+            row.prop(settings, "snapshot_a", text="A")
+            apply_a = row.operator("blender_nrp.apply_rig_snapshot", text="Apply")
+            apply_a.slot = "a"
+            row = sub.row(align=True)
+            row.prop(settings, "snapshot_b", text="B")
+            apply_b = row.operator("blender_nrp.apply_rig_snapshot", text="Apply")
+            apply_b.slot = "b"
 
             # --- Interchange -----------------------------------------------
             box = layout.box()

@@ -454,23 +454,50 @@ def bake_steps(
         blender_file_name = None
         warnings.append("Synthetic analytic-room capture generated outside Blender.")
 
-    trace = trace_camera_paths(
-        caster,
-        origin,
-        corners,
-        settings.width,
-        settings.height,
-        paths_per_pixel=settings.paths_per_pixel,
-        max_bounces=settings.max_bounces,
-        seed=settings.seed,
-    )
-    result = None
-    for fraction, maybe_result in trace:
-        if maybe_result is not None:
-            result = maybe_result
-            break
-        yield 0.9 * fraction, f"Tracing paths {fraction * 100.0:.0f}%", None
-    assert result is not None
+    tracer_engine = "python_ray_cast"
+    use_torch_analytic = not in_blender and settings.tracer_engine in {"auto", "torch_analytic"}
+    if use_torch_analytic:
+        try:
+            from ..core.torch_path_tracer import trace_analytic_room_paths
+
+            yield 0.05, "Tracing analytic fixture on torch device", None
+            result = trace_analytic_room_paths(
+                origin,
+                corners,
+                settings.width,
+                settings.height,
+                paths_per_pixel=settings.paths_per_pixel,
+                max_bounces=settings.max_bounces,
+                seed=settings.seed,
+                device=settings.torch_device,
+                caster=caster,
+            )
+            tracer_engine = f"torch_analytic:{settings.torch_device}"
+        except Exception as exc:
+            if settings.tracer_engine == "torch_analytic":
+                raise RuntimeError(
+                    f"torch analytic tracer requested but unavailable: {exc}"
+                ) from exc
+            warnings.append(f"Torch analytic tracer unavailable; used Python fallback: {exc}")
+            use_torch_analytic = False
+    if not use_torch_analytic:
+        trace = trace_camera_paths(
+            caster,
+            origin,
+            corners,
+            settings.width,
+            settings.height,
+            paths_per_pixel=settings.paths_per_pixel,
+            max_bounces=settings.max_bounces,
+            seed=settings.seed,
+        )
+        result = None
+        for fraction, maybe_result in trace:
+            if maybe_result is not None:
+                result = maybe_result
+                break
+            yield 0.9 * fraction, f"Tracing paths {fraction * 100.0:.0f}%", None
+        assert result is not None
     arrays = result.as_arrays()
 
     gbuffer_source = "path_tracer_first_hit"
@@ -501,6 +528,7 @@ def bake_steps(
         "max_bounces": settings.max_bounces,
         "gbuffer_source": gbuffer_source,
         "escape_segments": int(np.sum(~np.isfinite(arrays["seg_tmax"]))),
+        "tracer_engine": tracer_engine,
     }
 
     if settings.reference_check:

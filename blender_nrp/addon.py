@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import panels, preview, properties
+from . import panels, preferences, preview, properties
 from .operators import (
     bake_cache,
     export_lights,
@@ -11,12 +11,14 @@ from .operators import (
     make_relightable,
     optimize_lights,
     relight_preview,
+    rig_snapshots,
     train_proxy,
     validate_cache,
 )
 from .ui import light_panel
 
 MODULES = (
+    preferences,
     properties,
     bake_cache,
     validate_cache,
@@ -24,6 +26,7 @@ MODULES = (
     load_proxy,
     make_relightable,
     relight_preview,
+    rig_snapshots,
     optimize_lights,
     import_lights,
     export_lights,

@@ -70,6 +70,11 @@ if bpy is not None:
         obj["nrp_coordinate_system"] = BLENDER_Z_UP
         obj["nrp_color"] = list(color)
         obj["nrp_intensity"] = float(intensity)
+        obj["nrp_enabled"] = True
+        obj["nrp_muted"] = False
+        obj["nrp_solo"] = False
+        obj["nrp_kelvin"] = 6500.0
+        obj["nrp_tint"] = 0.0
 
     def create_sphere_light(
         context: bpy.types.Context,

@@ -35,6 +35,7 @@ class BakeJob:
     seed: int = 0
     packed: bool = False
     torch_device: str = "auto"
+    tracer_engine: str = "auto"
     output_manifest: tuple[str, ...] = ("path_cache.npz", "metadata.json", "bake_report.json")
     kind: Literal["bake"] = "bake"
     schema_version: int = JOB_SCHEMA_VERSION
@@ -47,6 +48,8 @@ class BakeJob:
             raise ValueError(f"unsupported bake job schema version: {self.schema_version}")
         if min(self.width, self.height, self.paths_per_pixel, self.max_bounces) < 1:
             raise ValueError("resolution, paths_per_pixel, and max_bounces must be positive")
+        if self.tracer_engine not in {"auto", "python", "torch_analytic"}:
+            raise ValueError(f"unsupported tracer_engine: {self.tracer_engine}")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self) | {"output_manifest": list(self.output_manifest)}

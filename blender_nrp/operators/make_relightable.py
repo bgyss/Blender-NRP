@@ -8,15 +8,27 @@ except ModuleNotFoundError:  # pragma: no cover
     bpy = None
 
 if bpy is not None:
+    import time
     from pathlib import Path
 
-    from ..core.execution import LocalSubprocessBackend
+    from ..core.execution import (
+        ExecutionQueue,
+        LocalSubprocessBackend,
+        QueuedJob,
+        SshExecutionBackend,
+    )
     from ..core.jobs import BakeJob, TrainJob
     from ..core.path_cache import validate_npz
     from ..core.staleness import stable_hash
     from ._helpers import cancel_with_status
 
-    _state: dict = {"backend": None, "job_id": None, "stage": None, "scene": None}
+    _state: dict = {
+        "backend": None,
+        "job_id": None,
+        "stage": None,
+        "scene": None,
+        "queue": None,
+    }
 
     def _settings_hash(settings) -> str:
         return stable_hash(
@@ -28,6 +40,7 @@ if bpy is not None:
                 "backend": settings.backend,
                 "packed": settings.packed_cache,
                 "preset": settings.quality_preset,
+                "tracer_engine": settings.tracer_engine,
             }
         )
 
@@ -36,6 +49,8 @@ if bpy is not None:
 
     def _finish_chain(scene, message: str) -> None:
         scene.blender_nrp.status = message
+        if _state.get("queue") is not None and _state.get("job_id") is not None:
+            _state["queue"].remove(_state["job_id"])
         _state.update({"backend": None, "job_id": None, "stage": None, "scene": None})
 
     def _poll() -> float | None:
@@ -69,7 +84,19 @@ if bpy is not None:
             train = TrainJob(
                 str(cache), str(cache.parent), settings.train_iterations, settings.train_device
             )
-            _state["job_id"] = backend.submit(train)
+            if _state.get("queue") is not None:
+                _state["queue"].remove(job_id)
+            train_job_id = backend.submit(train)
+            if _state.get("queue") is not None:
+                _state["queue"].add(
+                    QueuedJob(
+                        train_job_id,
+                        "local",
+                        time.time(),
+                        str((backend.queue_dir / train_job_id).with_suffix(".json")),
+                    )
+                )
+            _state["job_id"] = train_job_id
             _state["stage"] = "train"
             settings.status = "Validated cache — training proxy…"
             return 0.25
@@ -98,8 +125,6 @@ if bpy is not None:
                 return cancel_with_status(
                     self, context, "A relightable-scene job is already running"
                 )
-            if settings.compute != "local_subprocess":
-                return cancel_with_status(self, context, "Only This Machine is available in v0.3")
             if not bpy.data.filepath:
                 return cancel_with_status(
                     self, context, "Save the .blend before submitting a worker job"
@@ -107,9 +132,25 @@ if bpy is not None:
             if not settings.scene_id:
                 settings.scene_id = Path(bpy.data.filepath).stem
             output_dir = Path(bpy.path.abspath(settings.output_dir))
-            backend = LocalSubprocessBackend(
-                output_dir / ".nrp_jobs", blender_binary=bpy.app.binary_path
-            )
+            if settings.compute == "ssh":
+                prefs = context.preferences.addons["blender_nrp"].preferences
+                try:
+                    backend = SshExecutionBackend(
+                        output_dir / ".nrp_jobs",
+                        host=prefs.ssh_host,
+                        remote_root=prefs.ssh_remote_root,
+                        worker_root=prefs.ssh_worker_root,
+                        blender_binary=prefs.ssh_blender_binary,
+                    )
+                except ValueError as exc:
+                    return cancel_with_status(
+                        self, context, f"Configure SSH node in add-on preferences: {exc}"
+                    )
+            else:
+                backend = LocalSubprocessBackend(
+                    output_dir / ".nrp_jobs", blender_binary=bpy.app.binary_path
+                )
+            queue = ExecutionQueue(output_dir / ".nrp_jobs")
             job = BakeJob(
                 settings.scene_id,
                 bpy.data.filepath,
@@ -122,13 +163,24 @@ if bpy is not None:
                 settings.backend,
                 packed=settings.packed_cache,
                 torch_device=settings.train_device,
+                tracer_engine=settings.tracer_engine,
+            )
+            job_id = backend.submit(job)
+            queue.add(
+                QueuedJob(
+                    job_id,
+                    backend.id if hasattr(backend, "id") else "local",
+                    time.time(),
+                    str((output_dir / ".nrp_jobs" / job_id).with_suffix(".json")),
+                )
             )
             _state.update(
                 {
                     "backend": backend,
-                    "job_id": backend.submit(job),
+                    "job_id": job_id,
                     "stage": "bake",
                     "scene": context.scene,
+                    "queue": queue,
                 }
             )
             settings.status = "Baking… submitted to This Machine"

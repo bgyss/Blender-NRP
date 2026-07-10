@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 
 from blender_nrp.backends import cycles_capture
 from blender_nrp.backends.interface import BakeSettings
@@ -103,3 +104,37 @@ def test_bake_steps_reports_monotonic_progress(tmp_path):
     assert result is not None
     assert fractions == sorted(fractions)
     assert fractions[-1] == 1.0
+
+
+def test_torch_analytic_tracer_matches_python_first_hit_and_gather_scale():
+    pytest.importorskip("torch")
+    from blender_nrp.core.gather import gather_hdr
+    from blender_nrp.core.lights import SphereLight
+    from blender_nrp.core.path_tracer import trace_camera_paths
+    from blender_nrp.core.torch_path_tracer import trace_analytic_room_paths
+
+    origin = np.array([0.0, 3.5, 1.5])
+    corners = {
+        "top_left": np.array([-0.7, -1.0, 0.7]),
+        "top_right": np.array([0.7, -1.0, 0.7]),
+        "bottom_left": np.array([-0.7, -1.0, -0.7]),
+        "bottom_right": np.array([0.7, -1.0, -0.7]),
+    }
+    python_result = None
+    for _progress, result in trace_camera_paths(
+        AnalyticRoomCaster(), origin, corners, 8, 6, paths_per_pixel=4, max_bounces=3, seed=7
+    ):
+        if result is not None:
+            python_result = result
+    assert python_result is not None
+    torch_result = trace_analytic_room_paths(
+        origin, corners, 8, 6, paths_per_pixel=4, max_bounces=3, seed=7
+    )
+    np.testing.assert_allclose(torch_result.position, python_result.position, atol=1e-9)
+    np.testing.assert_allclose(torch_result.normal, python_result.normal, atol=1e-9)
+    np.testing.assert_allclose(torch_result.albedo, python_result.albedo, atol=1e-9)
+    assert np.any(np.isinf(torch_result.seg_tmax))
+    light = SphereLight((0.0, 0.0, 1.4), 0.35, (1.0, 0.9, 0.8), 5.0)
+    py_mean = gather_hdr(python_result.as_arrays(), (light,)).mean()
+    torch_mean = gather_hdr(torch_result.as_arrays(), (light,)).mean()
+    assert torch_mean == pytest.approx(py_mean, rel=0.45, abs=1e-8)
