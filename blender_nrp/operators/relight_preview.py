@@ -63,12 +63,64 @@ if bpy is not None:
                 return cancel_with_status(self, context, message)
             return finish_with_status(self, context, message)
 
+    class BLENDER_NRP_OT_select_light(bpy.types.Operator):
+        bl_idname = "blender_nrp.select_light"
+        bl_label = "Select NRP Light"
+        object_name: bpy.props.StringProperty()
+
+        def execute(self, context: bpy.types.Context) -> set[str]:
+            obj = context.scene.objects.get(self.object_name)
+            if obj is None:
+                return cancel_with_status(self, context, f"Light not found: {self.object_name}")
+            for selected in context.selected_objects:
+                selected.select_set(False)
+            obj.select_set(True)
+            context.view_layer.objects.active = obj
+            return {"FINISHED"}
+
+    class BLENDER_NRP_OT_duplicate_light(bpy.types.Operator):
+        bl_idname = "blender_nrp.duplicate_light"
+        bl_label = "Duplicate NRP Light"
+        object_name: bpy.props.StringProperty()
+
+        def execute(self, context: bpy.types.Context) -> set[str]:
+            source = context.scene.objects.get(self.object_name)
+            if source is None:
+                return cancel_with_status(self, context, f"Light not found: {self.object_name}")
+            copy = source.copy()
+            if source.data is not None:
+                copy.data = source.data.copy()
+            copy.name = f"{source.name}_copy"
+            context.collection.objects.link(copy)
+            copy.location.x += 0.25
+            for selected in context.selected_objects:
+                selected.select_set(False)
+            copy.select_set(True)
+            context.view_layer.objects.active = copy
+            return finish_with_status(self, context, f"Duplicated NRP light '{copy.name}'")
+
+    class BLENDER_NRP_OT_delete_light(bpy.types.Operator):
+        bl_idname = "blender_nrp.delete_light"
+        bl_label = "Delete NRP Light"
+        object_name: bpy.props.StringProperty()
+
+        def execute(self, context: bpy.types.Context) -> set[str]:
+            obj = context.scene.objects.get(self.object_name)
+            if obj is None:
+                return cancel_with_status(self, context, f"Light not found: {self.object_name}")
+            name = obj.name
+            bpy.data.objects.remove(obj, do_unlink=True)
+            return finish_with_status(self, context, f"Deleted NRP light '{name}'")
+
 
 CLASSES = (
     (
         BLENDER_NRP_OT_create_sphere_light,
         BLENDER_NRP_OT_create_quad_light,
         BLENDER_NRP_OT_relight_preview,
+        BLENDER_NRP_OT_select_light,
+        BLENDER_NRP_OT_duplicate_light,
+        BLENDER_NRP_OT_delete_light,
     )
     if bpy is not None
     else ()

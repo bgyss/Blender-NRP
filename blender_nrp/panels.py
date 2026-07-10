@@ -61,6 +61,7 @@ if bpy is not None:
             box.label(text="Make Scene Relightable", icon="LIGHT")
             box.prop(settings, "compute", text="Compute")
             box.prop(settings, "quality_preset", text="Quality")
+            box.prop(settings, "use_existing_cache")
             row = box.row(align=True)
             row.scale_y = 1.4
             row.operator("blender_nrp.make_relightable", icon="PLAY")
@@ -138,6 +139,14 @@ if bpy is not None:
             row = sub.row(align=True)
             row.prop(settings, "optimize_steps")
             row.operator("blender_nrp.optimize_lights", text="Solve", icon="SHADERFX")
+            row = sub.row(align=True)
+            row.operator(
+                "blender_nrp.match_reference", text="Match Reference", icon="IMAGE_REFERENCE"
+            )
+            if settings.match_pending_path:
+                row = sub.row(align=True)
+                row.operator("blender_nrp.apply_match_reference", text="Apply", icon="CHECKMARK")
+                row.operator("blender_nrp.discard_match_reference", text="Discard", icon="X")
             sub = box.column(align=True)
             sub.label(text="Rig Snapshots")
             row = sub.row(align=True)

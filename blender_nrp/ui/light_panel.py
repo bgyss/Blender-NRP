@@ -62,6 +62,12 @@ if bpy is not None:
 
         return setter
 
+    def _get_lock(name: str):
+        return lambda obj: bool(obj.get(f"nrp_lock_{name}", False))
+
+    def _set_lock(name: str):
+        return _set_flag(f"nrp_lock_{name}")
+
     def _get_color(obj: bpy.types.Object) -> tuple[float, float, float]:
         c = obj.get("nrp_color", (1.0, 1.0, 1.0))
         return (float(c[0]), float(c[1]), float(c[2]))
@@ -155,6 +161,18 @@ if bpy is not None:
                 name="Solo", get=_get_flag("nrp_solo"), set=_set_flag("nrp_solo"), default=False,
             ),
         ),
+        *[
+            (
+                f"nrp_lock_{field}_prop",
+                bpy.props.BoolProperty(
+                    name=f"Lock {field.title()}",
+                    get=_get_lock(field),
+                    set=_set_lock(field),
+                    default=False,
+                ),
+            )
+            for field in ("position", "color", "intensity", "radius", "width", "height", "normal")
+        ],
         (
             "nrp_color_prop",
             bpy.props.FloatVectorProperty(
@@ -234,6 +252,16 @@ if bpy is not None:
             row.prop(obj, "nrp_enabled_prop", toggle=True)
             row.prop(obj, "nrp_solo_prop", toggle=True)
             row.prop(obj, "nrp_mute_prop", toggle=True)
+            lock = layout.box()
+            lock.label(text="Match Reference Locks")
+            for field in ("position", "color", "intensity"):
+                lock.prop(obj, f"nrp_lock_{field}_prop")
+            if kind == "sphere":
+                lock.prop(obj, "nrp_lock_radius_prop")
+            else:
+                lock.prop(obj, "nrp_lock_width_prop")
+                lock.prop(obj, "nrp_lock_height_prop")
+                lock.prop(obj, "nrp_lock_normal_prop")
             layout.separator()
             layout.label(text="Color")
             layout.prop(obj, "nrp_color_prop")
@@ -246,7 +274,50 @@ if bpy is not None:
                 layout.prop(obj, "nrp_width_prop")
                 layout.prop(obj, "nrp_height_prop")
 
-    CLASSES = (BLENDER_NRP_PT_light,)
+    class BLENDER_NRP_PT_gaffer(bpy.types.Panel):
+        bl_label = "NRP Lights"
+        bl_idname = "BLENDER_NRP_PT_gaffer"
+        bl_space_type = "VIEW_3D"
+        bl_region_type = "UI"
+        bl_category = "NRP"
+
+        def draw(self, context: bpy.types.Context) -> None:
+            layout = self.layout
+            lights = [obj for obj in context.scene.objects if obj.get("nrp_light_type")]
+            header = layout.row(align=True)
+            header.operator("blender_nrp.create_sphere_light", text="+ Sphere")
+            header.operator("blender_nrp.create_quad_light", text="+ Quad")
+            if not lights:
+                layout.label(text="No NRP lights", icon="INFO")
+                return
+            for obj in lights:
+                kind = obj.get("nrp_light_type")
+                box = layout.box()
+                row = box.row(align=True)
+                select = row.operator(
+                    "blender_nrp.select_light",
+                    text="",
+                    icon="RADIOBUT_ON" if obj.select_get() else "RADIOBUT_OFF",
+                )
+                select.object_name = obj.name
+                row.prop(obj, "name", text="")
+                marker = (
+                    "S" if obj.get("nrp_solo") else "M" if obj.get("nrp_muted") else kind[0].upper()
+                )
+                row.label(text=marker)
+                actions = row.row(align=True)
+                duplicate = actions.operator(
+                    "blender_nrp.duplicate_light", text="", icon="DUPLICATE"
+                )
+                duplicate.object_name = obj.name
+                delete = actions.operator("blender_nrp.delete_light", text="", icon="X")
+                delete.object_name = obj.name
+                row = box.row(align=True)
+                row.prop(obj, "nrp_enabled_prop", text="", toggle=True)
+                row.prop(obj, "nrp_stops_prop", text="EV")
+                row.prop(obj, "nrp_kelvin_prop", text="K")
+
+    CLASSES = (BLENDER_NRP_PT_light, BLENDER_NRP_PT_gaffer)
 
 else:
     _PROPS = []

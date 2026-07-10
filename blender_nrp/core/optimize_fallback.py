@@ -69,6 +69,7 @@ def optimize_lights_fallback(
     initial_step: float = 0.25,
     max_segments: int = 200_000,
     seed: int = 0,
+    locks: tuple[set[str], ...] | None = None,
 ) -> dict:
     """Coordinate descent on every light parameter against `target` (H, W, 3)."""
     h, w, _ = arrays["albedo"].shape
@@ -87,6 +88,9 @@ def optimize_lights_fallback(
         return float(np.mean((image - target64) ** 2))
 
     current = tuple(lights)
+    locks = locks or tuple(set() for _ in lights)
+    if len(locks) != len(lights):
+        raise ValueError("locks must contain one field set per light")
     current_loss = loss(current)
     initial_loss = current_loss
     evaluations = 1
@@ -108,6 +112,8 @@ def optimize_lights_fallback(
         )
         for light_index in range(len(current)):
             for point in candidates:
+                if "position" in locks[light_index]:
+                    continue
                 candidate_light = replace(
                     current[light_index], position=tuple(float(v) for v in point)
                 )
@@ -123,6 +129,8 @@ def optimize_lights_fallback(
     for _sweep in range(sweeps):
         for light_index in range(len(current)):
             for field, comp, value in _get_params(current[light_index]):
+                if field in locks[light_index]:
+                    continue
                 scale = extent if field == "position" else max(abs(value), 0.05)
                 for sign in (1.0, -1.0):
                     improved = False
@@ -162,6 +170,7 @@ def optimize_lights_fallback(
         "solver": "numpy_coordinate_descent",
         "sweeps": sweeps,
         "light_count": len(lights),
+        "locked_fields": [sorted(fields) for fields in locks],
         "gather_evaluations": evaluations,
         "search_segments": int(np.asarray(search_arrays["seg_pixel"]).shape[0]),
         "initial_lights": [light.to_dict() for light in lights],

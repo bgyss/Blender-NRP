@@ -36,8 +36,9 @@ def _bounds_from_cache(arrays: dict[str, np.ndarray]) -> tuple[np.ndarray, np.nd
 class _LightParams:
     """Trainable torch parameters for one rig light."""
 
-    def __init__(self, light: AnyLight, device: torch.device):
+    def __init__(self, light: AnyLight, device: torch.device, locks: set[str] | None = None):
         self.kind = light.light_type
+        self.locks = locks or set()
         to = lambda v: torch.tensor(  # noqa: E731
             np.asarray(v, dtype=np.float64), dtype=torch.float32, device=device, requires_grad=True
         )
@@ -47,14 +48,27 @@ class _LightParams:
         if isinstance(light, SphereLight):
             self.radius = to([light.radius])
             self.shape_params = [self.radius]
+            self.shape_fields = ["radius"]
         else:
             self.normal = to(light.normal)
             self.width = to([light.width])
             self.height = to([light.height])
             self.shape_params = [self.normal, self.width, self.height]
+            self.shape_fields = ["normal", "width", "height"]
 
     def all_params(self) -> list[torch.Tensor]:
-        return [self.position, self.color, self.intensity, *self.shape_params]
+        params = []
+        if "position" not in self.locks:
+            params.append(self.position)
+        if "color" not in self.locks:
+            params.append(self.color)
+        if "intensity" not in self.locks:
+            params.append(self.intensity)
+        params.extend(
+            param for field, param in zip(self.shape_fields, self.shape_params, strict=True)
+            if field not in self.locks
+        )
+        return params
 
     def light_param_block(self, n: int) -> torch.Tensor:
         if self.kind == "sphere":
@@ -104,6 +118,7 @@ def optimize_lights(
     steps: int = 300,
     lr: float = 2e-2,
     device: str = "cpu",
+    locks: tuple[set[str], ...] | None = None,
 ) -> dict:
     """Optimize `lights` so the proxy image matches `target` (H, W, 3 linear HDR).
 
@@ -133,8 +148,15 @@ def optimize_lights(
     lo = torch.as_tensor(lo_np, dtype=torch.float32, device=dev)
     hi = torch.as_tensor(hi_np, dtype=torch.float32, device=dev)
 
-    params = [_LightParams(light, dev) for light in lights]
-    opt = torch.optim.Adam([p for lp in params for p in lp.all_params()], lr=lr)
+    locks = locks or tuple(set() for _ in lights)
+    if len(locks) != len(lights):
+        raise ValueError("locks must contain one field set per light")
+    params = [
+        _LightParams(light, dev, field_locks)
+        for light, field_locks in zip(lights, locks, strict=True)
+    ]
+    trainable = [p for lp in params for p in lp.all_params()]
+    opt = torch.optim.Adam(trainable, lr=lr) if trainable else None
 
     def predict() -> torch.Tensor:
         image = torch.zeros((n_px, 3), dtype=torch.float32, device=dev)
@@ -145,6 +167,8 @@ def optimize_lights(
 
     loss_curve: list[float] = []
     for _step in range(steps):
+        if opt is None:
+            break
         opt.zero_grad(set_to_none=True)
         loss = torch.mean((predict() - target_t) ** 2)
         loss.backward()
@@ -167,6 +191,7 @@ def optimize_lights(
         "solver": "torch_proxy_adam",
         "steps": steps,
         "light_count": len(lights),
+        "locked_fields": [sorted(fields) for fields in locks],
         "initial_lights": [light.to_dict() for light in lights],
         "optimized_lights": [light.to_dict() for light in optimized],
         "proxy_loss_first": loss_curve[0],

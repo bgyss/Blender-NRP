@@ -48,7 +48,7 @@ class BakeJob:
             raise ValueError(f"unsupported bake job schema version: {self.schema_version}")
         if min(self.width, self.height, self.paths_per_pixel, self.max_bounces) < 1:
             raise ValueError("resolution, paths_per_pixel, and max_bounces must be positive")
-        if self.tracer_engine not in {"auto", "python", "torch_analytic"}:
+        if self.tracer_engine not in {"auto", "python", "torch_mesh", "torch_analytic"}:
             raise ValueError(f"unsupported tracer_engine: {self.tracer_engine}")
 
     def to_dict(self) -> dict[str, Any]:
@@ -136,6 +136,8 @@ class JobProgress:
     message: str = ""
     artifacts: dict[str, str] = field(default_factory=dict)
     error: str | None = None
+    cost_per_hour: float | None = None
+    accrued_cost: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

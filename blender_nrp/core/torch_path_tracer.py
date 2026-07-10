@@ -14,6 +14,65 @@ import numpy as np
 from .path_tracer import AnalyticRoomCaster, TraceResult, generate_camera_dirs
 
 
+class TorchTriangleCaster:
+    """Device-resident flat-triangle caster for worker-exported Blender meshes."""
+
+    def __init__(self, vertices, triangles, normals, albedos, torch, device="auto"):
+        if device == "auto":
+            if torch.backends.mps.is_available():
+                device = "mps"
+            elif torch.cuda.is_available():
+                device = "cuda"
+            else:
+                device = "cpu"
+        self.torch = torch
+        self.device = torch.device(device)
+        self.dtype = torch.float64 if self.device.type == "cpu" else torch.float32
+        to = lambda value: torch.as_tensor(value, dtype=self.dtype, device=self.device)  # noqa: E731
+        vertex_array = to(vertices)
+        triangles = torch.as_tensor(triangles, dtype=torch.long, device=self.device)
+        self.v0 = vertex_array[triangles[:, 0]]
+        self.e1 = vertex_array[triangles[:, 1]] - self.v0
+        self.e2 = vertex_array[triangles[:, 2]] - self.v0
+        self.normals = to(normals)
+        self.albedos = to(albedos)
+
+    def cast(self, origins, dirs):
+        torch = self.torch
+        count = origins.shape[0]
+        best_t = torch.full((count,), torch.inf, dtype=self.dtype, device=self.device)
+        best_index = torch.zeros(count, dtype=torch.long, device=self.device)
+        eps = 1e-8
+        for start in range(0, self.v0.shape[0], 4096):
+            stop = min(start + 4096, self.v0.shape[0])
+            e1, e2, v0 = self.e1[start:stop], self.e2[start:stop], self.v0[start:stop]
+            pvec = torch.linalg.cross(dirs[:, None, :], e2[None, :, :])
+            det = (e1[None, :, :] * pvec).sum(dim=2)
+            inv_det = torch.where(det.abs() > eps, 1.0 / det, torch.zeros_like(det))
+            tvec = origins[:, None, :] - v0[None, :, :]
+            u = (tvec * pvec).sum(dim=2) * inv_det
+            qvec = torch.linalg.cross(tvec, e1[None, :, :])
+            v = (dirs[:, None, :] * qvec).sum(dim=2) * inv_det
+            t = (e2[None, :, :] * qvec).sum(dim=2) * inv_det
+            valid = (
+                (det.abs() > eps) & (u >= 0.0) & (u <= 1.0) & (v >= 0.0)
+                & (u + v <= 1.0) & (t > eps)
+            )
+            t = torch.where(valid, t, torch.inf)
+            chunk_t, chunk_index = t.min(dim=1)
+            improve = chunk_t < best_t
+            best_t = torch.where(improve, chunk_t, best_t)
+            best_index = torch.where(improve, chunk_index + start, best_index)
+        hit = torch.isfinite(best_t)
+        position = origins + torch.where(hit, best_t, torch.zeros_like(best_t))[:, None] * dirs
+        normal = self.normals[best_index]
+        normal = torch.where((normal * dirs).sum(dim=1, keepdim=True) > 0.0, -normal, normal)
+        albedo = self.albedos[best_index]
+        normal = torch.where(hit[:, None], normal, torch.zeros_like(normal))
+        albedo = torch.where(hit[:, None], albedo, torch.zeros_like(albedo))
+        return hit, best_t, position, normal, albedo
+
+
 def _sample_hemisphere(normals, torch):
     u1 = torch.rand((normals.shape[0],), dtype=normals.dtype, device=normals.device)
     u2 = torch.rand((normals.shape[0],), dtype=normals.dtype, device=normals.device)
@@ -171,4 +230,87 @@ def trace_analytic_room_paths(
         normal=normal.reshape(height, width, 3).detach().cpu().numpy(),
         depth=depth.reshape(height, width).detach().cpu().numpy(),
         position=position.reshape(height, width, 3).detach().cpu().numpy(),
+    )
+
+
+def trace_mesh_paths(
+    caster: TorchTriangleCaster,
+    cam_origin: np.ndarray,
+    corners: dict[str, np.ndarray],
+    width: int,
+    height: int,
+    *,
+    paths_per_pixel: int,
+    max_bounces: int,
+    seed: int = 0,
+) -> TraceResult:
+    """Trace a triangle scene in torch wavefront batches."""
+    import torch
+
+    rng = np.random.default_rng(seed)
+    dirs_np = np.concatenate(
+        [
+            generate_camera_dirs(
+                corners, width, height, row, paths_per_pixel=paths_per_pixel, rng=rng
+            )
+            for row in range(height)
+        ],
+        axis=0,
+    ).reshape(-1, 3)
+    torch.manual_seed(seed)
+    device, dtype = caster.device, caster.dtype
+    pixels = torch.arange(width * height, device=device).repeat_interleave(paths_per_pixel)
+    origins = torch.as_tensor(cam_origin, dtype=dtype, device=device).repeat(pixels.numel(), 1)
+    dirs = torch.as_tensor(dirs_np, dtype=dtype, device=device)
+    throughput = torch.ones((pixels.numel(), 3), dtype=dtype, device=device)
+    alive = torch.ones(pixels.numel(), dtype=torch.bool, device=device)
+    segments: list[tuple] = []
+    position = torch.zeros((height * width, 3), dtype=dtype, device=device)
+    normal = torch.zeros_like(position)
+    albedo = torch.zeros_like(position)
+    depth = torch.zeros(height * width, dtype=dtype, device=device)
+    first = torch.arange(width * height, device=device) * paths_per_pixel
+    for bounce in range(max_bounces):
+        rows = torch.nonzero(alive, as_tuple=False).squeeze(1)
+        if not rows.numel():
+            break
+        hit, t, hit_pos, hit_normal, hit_albedo = caster.cast(origins[rows], dirs[rows])
+        segments.append(
+            (
+                pixels[rows], origins[rows], dirs[rows],
+                torch.where(hit, t, torch.full_like(t, torch.inf)), throughput[rows],
+            )
+        )
+        if bounce == 0:
+            first_rows = torch.isin(rows, first)
+            slots = rows[first_rows] // paths_per_pixel
+            valid = hit[first_rows]
+            position[slots[valid]] = hit_pos[first_rows][valid]
+            normal[slots[valid]] = hit_normal[first_rows][valid]
+            albedo[slots[valid]] = hit_albedo[first_rows][valid]
+            depth[slots[valid]] = t[first_rows][valid]
+        escaped = rows[~hit]
+        alive[escaped] = False
+        if bounce + 1 < max_bounces and hit.any():
+            hit_rows = rows[hit]
+            origins[hit_rows] = hit_pos[hit] + hit_normal[hit] * 1e-4
+            dirs[hit_rows] = _sample_hemisphere(hit_normal[hit], torch)
+            throughput[hit_rows] *= hit_albedo[hit].clamp(0.0, 1.0)
+        else:
+            alive[rows[hit]] = False
+
+    def cpu(index):
+        return torch.cat([part[index] for part in segments]).detach().cpu().numpy()
+
+    return TraceResult(
+        n_paths=np.full(width * height, paths_per_pixel, dtype=np.int64),
+        seg_pixel=cpu(0).astype(np.int64),
+        seg_origin=cpu(1).astype(np.float64),
+        seg_dir=cpu(2).astype(np.float64),
+        seg_tmax=cpu(3).astype(np.float64),
+        seg_throughput=cpu(4).astype(np.float64),
+        albedo=albedo.reshape(height, width, 3).cpu().numpy(),
+        normal=normal.reshape(height, width, 3).cpu().numpy(),
+        depth=depth.reshape(height, width).cpu().numpy(),
+        position=position.reshape(height, width, 3).cpu().numpy(),
     )

@@ -1,0 +1,25 @@
+# Headless worker image contract for the RunPod adapter.
+# Build with a Blender tarball URL appropriate to the studio's licensed build:
+#   docker build --build-arg BLENDER_URL=... -f Dockerfile.worker .
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+ARG BLENDER_URL
+ENV DEBIAN_FRONTEND=noninteractive
+ENV BLENDER_HOME=/opt/blender
+ENV NRP_WORKER_ROOT=/opt/Blender-NRP
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl python3 python3-pip openssh-server rsync \
+    libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+RUN test -n "$BLENDER_URL" && mkdir -p "$BLENDER_HOME" \
+    && curl -fsSL "$BLENDER_URL" | tar -xz --strip-components=1 -C "$BLENDER_HOME"
+
+COPY . "$NRP_WORKER_ROOT"
+RUN python3 -m pip install --no-cache-dir --break-system-packages -e "$NRP_WORKER_ROOT"
+RUN mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh
+
+# Studio/RunPod deployment supplies authorized_keys through its image or volume.
+# The pod remains idle until the execution backend stages a job over SSH.
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

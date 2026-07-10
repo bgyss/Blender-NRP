@@ -64,6 +64,7 @@ if bpy is not None:
             items=(
                 ("local_subprocess", "This Machine", "Run the worker outside Blender"),
                 ("ssh", "SSH / LAN Node", "Submit the same job bundle through SSH and rsync"),
+                ("runpod", "RunPod Cloud", "Rent a GPU pod and transfer the job over SSH"),
             ),
             default="local_subprocess",
         )
@@ -83,6 +84,11 @@ if bpy is not None:
                 ("auto", "Auto", "Use torch analytic fixture tracing when available"),
                 ("python", "Python", "Use the V2 CPU ray-cast tracer"),
                 (
+                    "torch_mesh",
+                    "Torch Mesh",
+                    "Use device-side triangle traversal for Blender meshes",
+                ),
+                (
                     "torch_analytic",
                     "Torch Analytic",
                     "Require the device-side analytic fixture tracer",
@@ -96,6 +102,15 @@ if bpy is not None:
         snapshot_name: bpy.props.StringProperty(name="Snapshot", default="Look 01")
         snapshot_a: bpy.props.StringProperty(name="A", default="")
         snapshot_b: bpy.props.StringProperty(name="B", default="")
+        match_pending_path: bpy.props.StringProperty(name="Pending Match", default="")
+        use_existing_cache: bpy.props.BoolProperty(
+            name="Use Existing Cache",
+            description=(
+                "When settings or geometry changed, train from the existing cache "
+                "instead of re-baking"
+            ),
+            default=False,
+        )
         segment_count: bpy.props.IntProperty(
             name="Hemisphere Segments",
             default=16,

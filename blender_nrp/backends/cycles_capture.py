@@ -22,6 +22,7 @@ progress updates and cancellation; `bake()` simply drains it.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -119,6 +120,53 @@ class BlenderRayCaster:
             t[i] = (location - origin).length
             albedo[i] = self._albedo(obj)
         return hit, t, position, normal, albedo
+
+
+def _torch_triangle_caster(context: Any, device: str):
+    """Export evaluated Blender triangles into the device-resident torch caster."""
+    import torch
+
+    from ..core.torch_path_tracer import TorchTriangleCaster
+
+    depsgraph = context.evaluated_depsgraph_get()
+    vertices: list[tuple[float, float, float]] = []
+    triangles: list[tuple[int, int, int]] = []
+    normals: list[tuple[float, float, float]] = []
+    albedos: list[tuple[float, float, float]] = []
+    for obj in context.scene.objects:
+        if obj.type != "MESH" or obj.hide_render:
+            continue
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        try:
+            mesh.calc_loop_triangles()
+            transform = evaluated.matrix_world
+            material_color = np.array((0.8, 0.8, 0.8), dtype=np.float64)
+            material = evaluated.active_material
+            if material is not None:
+                material_color = np.asarray(material.diffuse_color[:3], dtype=np.float64)
+                if material.use_nodes and material.node_tree is not None:
+                    for node in material.node_tree.nodes:
+                        if node.type == "BSDF_PRINCIPLED":
+                            material_color = np.asarray(
+                                node.inputs["Base Color"].default_value[:3], dtype=np.float64
+                            )
+                            break
+            offset = len(vertices)
+            vertices.extend(
+                tuple(float(v) for v in transform @ vertex.co) for vertex in mesh.vertices
+            )
+            for triangle in mesh.loop_triangles:
+                triangles.append(tuple(offset + int(index) for index in triangle.vertices))
+                normal = np.asarray(transform.to_3x3() @ triangle.normal, dtype=np.float64)
+                normal /= max(float(np.linalg.norm(normal)), 1e-12)
+                normals.append(tuple(float(v) for v in normal))
+                albedos.append(tuple(float(v) for v in material_color))
+        finally:
+            evaluated.to_mesh_clear()
+    if not triangles:
+        raise ValueError("scene contains no renderable mesh triangles")
+    return TorchTriangleCaster(vertices, triangles, normals, albedos, torch, device=device)
 
 
 def _camera_frame(context: Any, settings: BakeSettings):
@@ -436,6 +484,7 @@ def bake_steps(
         in_blender = False
 
     warnings: list[str] = []
+    trace_started = time.perf_counter()
     if in_blender:
         origin, corners, camera_id = _camera_frame(context, settings)
         caster = BlenderRayCaster(context.scene, context.evaluated_depsgraph_get())
@@ -455,7 +504,32 @@ def bake_steps(
         warnings.append("Synthetic analytic-room capture generated outside Blender.")
 
     tracer_engine = "python_ray_cast"
-    use_torch_analytic = not in_blender and settings.tracer_engine in {"auto", "torch_analytic"}
+    use_torch_mesh = in_blender and settings.tracer_engine in {"auto", "torch_mesh"}
+    if use_torch_mesh:
+        try:
+            from ..core.torch_path_tracer import trace_mesh_paths
+
+            torch_caster = _torch_triangle_caster(context, settings.torch_device)
+            yield 0.05, "Tracing scene triangles on torch device", None
+            result = trace_mesh_paths(
+                torch_caster,
+                origin,
+                corners,
+                settings.width,
+                settings.height,
+                paths_per_pixel=settings.paths_per_pixel,
+                max_bounces=settings.max_bounces,
+                seed=settings.seed,
+            )
+            tracer_engine = f"torch_mesh:{torch_caster.device}"
+        except Exception as exc:
+            if settings.tracer_engine == "torch_mesh":
+                raise RuntimeError(f"torch mesh tracer requested but unavailable: {exc}") from exc
+            warnings.append(f"Torch mesh tracer unavailable; used Python fallback: {exc}")
+            use_torch_mesh = False
+    use_torch_analytic = (
+        not in_blender and settings.tracer_engine in {"auto", "torch_analytic"}
+    )
     if use_torch_analytic:
         try:
             from ..core.torch_path_tracer import trace_analytic_room_paths
@@ -480,7 +554,7 @@ def bake_steps(
                 ) from exc
             warnings.append(f"Torch analytic tracer unavailable; used Python fallback: {exc}")
             use_torch_analytic = False
-    if not use_torch_analytic:
+    if not use_torch_analytic and not use_torch_mesh:
         trace = trace_camera_paths(
             caster,
             origin,
@@ -529,6 +603,7 @@ def bake_steps(
         "gbuffer_source": gbuffer_source,
         "escape_segments": int(np.sum(~np.isfinite(arrays["seg_tmax"]))),
         "tracer_engine": tracer_engine,
+        "trace_wall_seconds": time.perf_counter() - trace_started,
     }
 
     if settings.reference_check:

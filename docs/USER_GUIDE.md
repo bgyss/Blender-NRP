@@ -112,6 +112,9 @@ info/error toast, and the bottom status line keeps the last message.
   - Paths / Pixel and Max Bounces: the Monte Carlo budget for Cycles Capture.
   - Packed Cache: write the fp16 + rgb9e5 packed layout (~4x smaller).
   - `Bake Path Cache` runs modally — the status line shows progress and **Esc cancels**.
+    Worker bakes record `tracer_engine` and `trace_wall_seconds` in `bake_report.json`;
+    when torch is installed, Blender workers can use device-side triangle traversal
+    (`torch_mesh`) and otherwise report the Python ray-cast fallback.
     Validation now runs **automatically** at the end of the bake; the result (resolution,
     segment count, schema version, layout) is folded into the status, and a malformed
     cache is reported loudly instead of silently.
@@ -163,8 +166,20 @@ python scripts/run_solve_job.py solve_job.json --status status.json
 ```
 
 The job and status JSON files are portable, versioned interfaces. SSH/LAN and cloud
-transports are planned adapters to this same worker contract; credentials do not
-belong in scene files or job bundles.
+transports consume this same worker contract; credentials do not belong in scene
+files or job bundles.
+
+The Compute dropdown also exposes **SSH / LAN Node** and **RunPod Cloud**. Configure
+the host, worker checkout, or RunPod API/image settings under Blender Add-on
+Preferences; those values are never written into the scene. RunPod uses the REST
+pod lifecycle, reports the pod's hourly and accrued cost in job status, then stages
+the same bundle through the pod's SSH port. Build [Dockerfile.worker](../Dockerfile.worker)
+as the starting image contract and provide an authorized SSH key through the image
+or a mounted secret.
+
+For reference matching, use **Match Reference** in Advanced. It writes
+`match_reference_before.png`, `match_reference_after.png`, and a pending solved rig;
+the scene is unchanged until **Apply**. **Discard** removes the pending result.
 
 This is the canonical manual test sequence. Follow it in order to confirm the whole
 pipeline is wired correctly.

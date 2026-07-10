@@ -20,6 +20,9 @@ contracts and correctness-first approach:
   progress files ready for LAN and cloud adapters,
 - use **Make Scene Relightable** for the default local bake → validate → train →
   load → starter-light → preview path; detailed V2 settings remain under Advanced.
+- use SSH/LAN or RunPod Cloud from the same Compute selector when a configured
+  worker image/node is available, with cost and cancellation state kept in the job
+  status rather than scene artifacts.
 
 The build goals live in [docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md](docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md) (V1), [docs/prompts/blender-nrp-v2-goal-prompt.md](docs/prompts/blender-nrp-v2-goal-prompt.md) (V2), and [docs/prompts/blender-nrp-v3-goal-prompt.md](docs/prompts/blender-nrp-v3-goal-prompt.md) (V3).
 

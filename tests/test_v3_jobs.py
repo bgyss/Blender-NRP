@@ -9,6 +9,7 @@ from blender_nrp.core.execution import (
     ExecutionQueue,
     LocalSubprocessBackend,
     QueuedJob,
+    RunPodExecutionBackend,
     SshExecutionBackend,
 )
 from blender_nrp.core.jobs import BakeJob, JobProgress, read_job, write_job, write_progress
@@ -88,7 +89,7 @@ def test_ssh_backend_stages_job_and_fetches_reported_artifacts(tmp_path):
 
     def runner(command):
         commands.append(command)
-        if command[:3] == ["ssh", "renderbox", "cat"]:
+        if "cat" in command:
             progress = JobProgress(
                 "j", "succeeded", artifacts={"path_cache": "/remote/cache.npz"}
             )
@@ -108,3 +109,48 @@ def test_ssh_backend_stages_job_and_fetches_reported_artifacts(tmp_path):
     progress = backend.status(job_id)
     assert progress.state == "succeeded"
     assert backend.fetch(job_id)["path_cache"].name == "cache.npz"
+
+
+def test_runpod_adapter_creates_polls_fetches_and_deletes_pod(tmp_path):
+    api_calls = []
+
+    def request(method, path, payload):
+        api_calls.append((method, path, payload))
+        if method == "POST" and path == "/pods":
+            return {"id": "pod-1", "costPerHr": 0.42}
+        if method == "GET":
+            return {
+                "id": "pod-1",
+                "desiredStatus": "RUNNING",
+                "publicIp": "203.0.113.10",
+                "portMappings": {"22": 2222},
+                "costPerHr": 0.42,
+            }
+        return {}
+
+    def runner(command):
+        if "cat" in command:
+            progress = JobProgress(
+                "delegate", "succeeded", artifacts={"path_cache": "/remote/cache.npz"}
+            )
+            return type("Result", (), {"stdout": json.dumps(progress.to_dict())})()
+        return type("Result", (), {"stdout": ""})()
+
+    scene = tmp_path / "scene.blend"
+    scene.touch()
+    backend = RunPodExecutionBackend(
+        tmp_path,
+        api_key="secret",
+        image_name="registry/blender-nrp:latest",
+        worker_root="/opt/Blender-NRP",
+        requester=request,
+    )
+    backend.ssh_runner = runner
+    pod_id = backend.submit(BakeJob("scene", str(scene), str(tmp_path)))
+    progress = backend.status(pod_id)
+    assert progress.state == "succeeded"
+    assert progress.cost_per_hour == 0.42
+    assert backend.fetch(pod_id)["path_cache"].name == "cache.npz"
+    backend.cancel(pod_id)
+    assert ("POST", "/pods",) == api_calls[0][:2]
+    assert ("DELETE", "/pods/pod-1") in [call[:2] for call in api_calls]

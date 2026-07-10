@@ -21,6 +21,16 @@ if bpy is not None:
             name="Remote Worker Root", default="~/Blender-NRP"
         )
         ssh_blender_binary: bpy.props.StringProperty(name="Remote Blender", default="blender")
+        runpod_api_key: bpy.props.StringProperty(
+            name="RunPod API Key", subtype="PASSWORD", default=""
+        )
+        runpod_image: bpy.props.StringProperty(name="RunPod Image", default="")
+        runpod_worker_root: bpy.props.StringProperty(
+            name="RunPod Worker Root", default="/opt/Blender-NRP"
+        )
+        runpod_gpu_type: bpy.props.StringProperty(
+            name="RunPod GPU", default="NVIDIA GeForce RTX 4090"
+        )
 
         def draw(self, context: bpy.types.Context) -> None:
             layout = self.layout
@@ -30,6 +40,12 @@ if bpy is not None:
             layout.prop(self, "ssh_worker_root")
             layout.prop(self, "ssh_blender_binary")
             layout.label(text="Credentials remain in your SSH agent or config, never in a .blend.")
+            layout.separator()
+            layout.label(text="RunPod GPU pods")
+            layout.prop(self, "runpod_api_key")
+            layout.prop(self, "runpod_image")
+            layout.prop(self, "runpod_worker_root")
+            layout.prop(self, "runpod_gpu_type")
 
 
 CLASSES = (BlenderNRPPreferences,) if bpy is not None else ()

@@ -167,3 +167,18 @@ def test_fallback_optimizer_improves_without_torch_api(traced_arrays):
     report = optimize_lights_fallback(traced_arrays, (init,), target, sweeps=3)
     assert report["solver"] == "numpy_coordinate_descent"
     assert report["gather_mse_vs_target_final"] < report["gather_mse_vs_target_initial"]
+
+
+def test_fallback_optimizer_honors_match_reference_locks(traced_arrays):
+    target = gather_hdr(
+        traced_arrays,
+        (SphereLight(position=(0.0, 0.0, 1.5), radius=0.5, color=(1.0, 0.8, 0.6), intensity=3.0),),
+    )
+    initial = SphereLight(
+        position=(-1.0, 0.5, 0.5), radius=0.2, color=(1, 1, 1), intensity=1.0
+    )
+    report = optimize_lights_fallback(
+        traced_arrays, (initial,), target, sweeps=1, locks=({"intensity"},)
+    )
+    assert report["optimized_lights"][0]["intensity"] == initial.intensity
+    assert report["locked_fields"] == [["intensity"]]

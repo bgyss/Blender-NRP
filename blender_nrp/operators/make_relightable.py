@@ -15,6 +15,7 @@ if bpy is not None:
         ExecutionQueue,
         LocalSubprocessBackend,
         QueuedJob,
+        RunPodExecutionBackend,
         SshExecutionBackend,
     )
     from ..core.jobs import BakeJob, TrainJob
@@ -132,7 +133,21 @@ if bpy is not None:
             if not settings.scene_id:
                 settings.scene_id = Path(bpy.data.filepath).stem
             output_dir = Path(bpy.path.abspath(settings.output_dir))
-            if settings.compute == "ssh":
+            if settings.compute == "runpod":
+                prefs = context.preferences.addons["blender_nrp"].preferences
+                try:
+                    backend = RunPodExecutionBackend(
+                        output_dir / ".nrp_jobs",
+                        api_key=prefs.runpod_api_key,
+                        image_name=prefs.runpod_image,
+                        worker_root=prefs.runpod_worker_root,
+                        gpu_type=prefs.runpod_gpu_type,
+                    )
+                except ValueError as exc:
+                    return cancel_with_status(
+                        self, context, f"Configure RunPod in add-on preferences: {exc}"
+                    )
+            elif settings.compute == "ssh":
                 prefs = context.preferences.addons["blender_nrp"].preferences
                 try:
                     backend = SshExecutionBackend(
@@ -165,6 +180,26 @@ if bpy is not None:
                 torch_device=settings.train_device,
                 tracer_engine=settings.tracer_engine,
             )
+            stale = (
+                bool(settings.cache_path)
+                and Path(bpy.path.abspath(settings.cache_path)).exists()
+                and bool(settings.pipeline_settings_hash)
+                and (
+                    settings.pipeline_settings_hash != _settings_hash(settings)
+                    or settings.pipeline_scene_hash != _scene_hash(context.scene)
+                )
+            )
+            if stale and settings.use_existing_cache:
+                cache = Path(bpy.path.abspath(settings.cache_path))
+                job = TrainJob(
+                    str(cache), str(cache.parent), settings.train_iterations, settings.train_device
+                )
+                stage = "train"
+                settings.status = "Cache is stale — using existing cache by request"
+            else:
+                stage = "bake"
+                if stale:
+                    settings.status = "Cache is stale — re-baking because Use Existing Cache is off"
             job_id = backend.submit(job)
             queue.add(
                 QueuedJob(
@@ -178,7 +213,7 @@ if bpy is not None:
                 {
                     "backend": backend,
                     "job_id": job_id,
-                    "stage": "bake",
+                    "stage": stage,
                     "scene": context.scene,
                     "queue": queue,
                 }

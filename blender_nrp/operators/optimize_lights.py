@@ -68,6 +68,16 @@ if bpy is not None:
                 return cancel_with_status(self, context, "No NRP lights to optimize")
             objects = [obj for obj, _ in pairs]
             lights = tuple(light for _, light in pairs)
+            locks = tuple(
+                {
+                    field
+                    for field in (
+                        "position", "color", "intensity", "radius", "width", "height", "normal"
+                    )
+                    if bool(obj.get(f"nrp_lock_{field}", False))
+                }
+                for obj in objects
+            )
 
             cache_path = Path(bpy.path.abspath(settings.cache_path))
             try:
@@ -98,11 +108,12 @@ if bpy is not None:
                         lights,
                         target,
                         steps=settings.optimize_steps,
+                        locks=locks,
                     )
                 else:
                     from ..core.optimize_fallback import optimize_lights_fallback
 
-                    report = optimize_lights_fallback(arrays, lights, target)
+                    report = optimize_lights_fallback(arrays, lights, target, locks=locks)
                     if not torch_ok:
                         report["limitations"].append(
                             "Install torch and train/load a proxy for the "
