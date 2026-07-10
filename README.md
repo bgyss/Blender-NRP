@@ -7,7 +7,8 @@ The project is based on Sancho et al.'s Disney Research paper
 and derives its data contracts and torch proxy behavior from the
 [`bgyss/nrp`](https://github.com/bgyss/nrp) sample reimplementation.
 
-V2 targets parity with the current `nrp` reference, still prioritizing correctness over real-time performance:
+V3 (`0.3.0`) begins the production-workflow path while retaining V2's compatibility
+contracts and correctness-first approach:
 
 - bake a light-agnostic multi-bounce path cache (Cycles G-buffer passes, escape segments, optional packed fp16 + rgb9e5 layout) with a modal, cancellable operator,
 - train a real PyTorch neural proxy in the background (cosine LR, checkpoint/resume, MPS/CUDA) writing an `nrp`-loadable `model.pt`,
@@ -15,8 +16,12 @@ V2 targets parity with the current `nrp` reference, still prioritizing correctne
 - preview fixed-camera relighting live inside Blender (Image datablock, debounced auto-update) via the proxy or the exact cache gather,
 - solve a light rig against a target image with gradients through the proxy (coordinate-descent fallback without torch),
 - import and export ComfyUI-compatible light rigs with real coordinate conversion.
+- submit versioned bake/train/solve jobs to a local background worker, with durable
+  progress files ready for LAN and cloud adapters,
+- use **Make Scene Relightable** for the default local bake → validate → train →
+  load → starter-light → preview path; detailed V2 settings remain under Advanced.
 
-The build goals live in [docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md](docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md) (V1) and [docs/prompts/blender-nrp-v2-goal-prompt.md](docs/prompts/blender-nrp-v2-goal-prompt.md) (V2).
+The build goals live in [docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md](docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md) (V1), [docs/prompts/blender-nrp-v2-goal-prompt.md](docs/prompts/blender-nrp-v2-goal-prompt.md) (V2), and [docs/prompts/blender-nrp-v3-goal-prompt.md](docs/prompts/blender-nrp-v3-goal-prompt.md) (V3).
 
 For installation, usage, and a quick tutorial, read [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 

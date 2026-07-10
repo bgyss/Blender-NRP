@@ -45,6 +45,23 @@ if bpy is not None:
             ),
             default="cycles_capture",
         )
+        compute: bpy.props.EnumProperty(
+            name="Compute",
+            items=(("local_subprocess", "This Machine", "Run the worker outside Blender"),),
+            default="local_subprocess",
+        )
+        quality_preset: bpy.props.EnumProperty(
+            name="Quality",
+            items=(
+                ("draft", "Draft", "Fast validation settings"),
+                ("standard", "Standard", "Balanced local settings"),
+                ("final", "Final", "Higher budget; use remote compute when available"),
+            ),
+            default="draft",
+        )
+        show_advanced: bpy.props.BoolProperty(name="Advanced", default=False)
+        pipeline_settings_hash: bpy.props.StringProperty(name="Pipeline Settings Hash", default="")
+        pipeline_scene_hash: bpy.props.StringProperty(name="Pipeline Scene Hash", default="")
         segment_count: bpy.props.IntProperty(
             name="Hemisphere Segments",
             default=16,

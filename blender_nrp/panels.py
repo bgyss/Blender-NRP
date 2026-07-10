@@ -57,6 +57,23 @@ if bpy is not None:
             proxy_loaded = proxy_runtime.model is not None
             preview_ready = bpy.data.images.get(PREVIEW_IMAGE_NAME) is not None
 
+            box = layout.box()
+            box.label(text="Make Scene Relightable", icon="LIGHT")
+            box.prop(settings, "compute", text="Compute")
+            box.prop(settings, "quality_preset", text="Quality")
+            row = box.row(align=True)
+            row.scale_y = 1.4
+            row.operator("blender_nrp.make_relightable", icon="PLAY")
+            row.operator("blender_nrp.cancel_make_relightable", text="", icon="X")
+            box.prop(settings, "show_advanced", toggle=True)
+
+            if not settings.show_advanced:
+                layout.separator()
+                layout.label(text="Advanced controls are hidden", icon="PREFERENCES")
+                layout.separator()
+                layout.label(text=settings.status, icon="INFO")
+                return
+
             # --- Scene setup ------------------------------------------------
             col = layout.column(align=True)
             col.prop(settings, "scene_id")

@@ -145,6 +145,27 @@ info/error toast, and the bottom status line keeps the last message.
 
 ## Quick Tutorial: Bake, Train, And Relight
 
+### V3 default workflow
+
+Save the `.blend`, select the fixed camera, and use **Make Scene Relightable** at
+the top of the Blender-NRP Scene panel. **This Machine** writes a versioned job into
+the configured output directory, runs the bake in a background Blender process,
+validates its cache, then trains and loads the proxy before making a starter light
+and preview. Use **Cancel** to stop the currently submitted local worker. The
+**Advanced** disclosure retains the individual V2 stages and their full settings.
+
+V3's local worker scripts also support unattended processing:
+
+```bash
+blender --background scene.blend --python scripts/run_bake_job.py -- bake_job.json --status status.json
+python scripts/run_train_job.py train_job.json --status status.json
+python scripts/run_solve_job.py solve_job.json --status status.json
+```
+
+The job and status JSON files are portable, versioned interfaces. SSH/LAN and cloud
+transports are planned adapters to this same worker contract; credentials do not
+belong in scene files or job bundles.
+
 This is the canonical manual test sequence. Follow it in order to confirm the whole
 pipeline is wired correctly.
 
