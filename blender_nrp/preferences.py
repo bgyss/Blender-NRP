@@ -31,6 +31,9 @@ if bpy is not None:
         runpod_gpu_type: bpy.props.StringProperty(
             name="RunPod GPU", default="NVIDIA GeForce RTX 4090"
         )
+        runpod_hourly_rate: bpy.props.FloatProperty(
+            name="Estimated $/hour", default=0.69, min=0.0
+        )
 
         def draw(self, context: bpy.types.Context) -> None:
             layout = self.layout
@@ -46,6 +49,7 @@ if bpy is not None:
             layout.prop(self, "runpod_image")
             layout.prop(self, "runpod_worker_root")
             layout.prop(self, "runpod_gpu_type")
+            layout.prop(self, "runpod_hourly_rate")
 
 
 CLASSES = (BlenderNRPPreferences,) if bpy is not None else ()

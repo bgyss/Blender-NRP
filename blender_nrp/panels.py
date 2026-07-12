@@ -20,6 +20,7 @@ if bpy is not None:
     from pathlib import Path
 
     from . import proxy_runtime
+    from .core.cost import estimate_bake_seconds, estimate_cost_usd
     from .preview import PREVIEW_IMAGE_NAME
 
     def _exists(path_str: str) -> bool:
@@ -62,10 +63,30 @@ if bpy is not None:
             box.prop(settings, "compute", text="Compute")
             box.prop(settings, "quality_preset", text="Quality")
             box.prop(settings, "use_existing_cache")
+            if settings.compute == "runpod":
+                prefs = context.preferences.addons["blender_nrp"].preferences
+                seconds = estimate_bake_seconds(
+                    settings.resolution_x,
+                    settings.resolution_y,
+                    settings.paths_per_pixel,
+                    settings.max_bounces,
+                )
+                cost = estimate_cost_usd(
+                    settings.resolution_x,
+                    settings.resolution_y,
+                    settings.paths_per_pixel,
+                    settings.max_bounces,
+                    prefs.runpod_hourly_rate,
+                )
+                box.label(
+                    text=f"Estimated bake: {seconds / 60.0:.1f} min / ${cost:.3f}",
+                    icon="TIME",
+                )
             row = box.row(align=True)
             row.scale_y = 1.4
             row.operator("blender_nrp.make_relightable", icon="PLAY")
             row.operator("blender_nrp.cancel_make_relightable", text="", icon="X")
+            box.operator("blender_nrp.reconcile_jobs", icon="FILE_REFRESH")
             box.prop(settings, "show_advanced", toggle=True)
 
             if not settings.show_advanced:

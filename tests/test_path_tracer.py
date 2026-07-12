@@ -138,3 +138,66 @@ def test_torch_analytic_tracer_matches_python_first_hit_and_gather_scale():
     py_mean = gather_hdr(python_result.as_arrays(), (light,)).mean()
     torch_mean = gather_hdr(torch_result.as_arrays(), (light,)).mean()
     assert torch_mean == pytest.approx(py_mean, rel=0.45, abs=1e-8)
+
+
+def test_torch_triangle_caster_hits_device_mesh():
+    torch = pytest.importorskip("torch")
+    from blender_nrp.core.torch_path_tracer import TorchTriangleCaster
+
+    caster = TorchTriangleCaster(
+        vertices=np.array([[-1, -1, 2], [1, -1, 2], [0, 1, 2]], dtype=np.float64),
+        triangles=np.array([[0, 1, 2]], dtype=np.int64),
+        normals=np.array([[0, 0, -1]], dtype=np.float64),
+        albedos=np.array([[0.4, 0.5, 0.6]], dtype=np.float64),
+        torch=torch,
+        device="cpu",
+    )
+    hit, t, position, normal, albedo = caster.cast(
+        torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+        torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float64),
+    )
+    assert hit.tolist() == [True]
+    assert float(t[0]) == pytest.approx(2.0)
+    assert position[0].tolist() == pytest.approx([0.0, 0.0, 2.0])
+    assert normal[0].tolist() == pytest.approx([0.0, 0.0, -1.0])
+    assert albedo[0].tolist() == pytest.approx([0.4, 0.5, 0.6])
+    many_vertices = []
+    many_triangles = []
+    for index in range(9):
+        offset = len(many_vertices)
+        x = float(index * 4)
+        many_vertices.extend([[-1 + x, -1, 2], [1 + x, -1, 2], [x, 1, 2]])
+        many_triangles.append([offset, offset + 1, offset + 2])
+    many = TorchTriangleCaster(
+        many_vertices,
+        many_triangles,
+        np.tile([[0, 0, -1]], (9, 1)),
+        np.tile([[0.4, 0.5, 0.6]], (9, 1)),
+        torch=torch,
+        device="cpu",
+    )
+    assert many.bvh_node_count > 1
+    many_hit, many_t, *_ = many.cast(
+        torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+        torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float64),
+    )
+    assert many_hit.tolist() == [True]
+    assert float(many_t[0]) == pytest.approx(2.0)
+    from blender_nrp.core.torch_path_tracer import trace_mesh_paths
+
+    traced = trace_mesh_paths(
+        caster,
+        np.array([0.0, 0.0, 0.0]),
+        {
+            "top_left": np.array([-0.5, 0.5, 1.0]),
+            "top_right": np.array([0.5, 0.5, 1.0]),
+            "bottom_left": np.array([-0.5, -0.5, 1.0]),
+            "bottom_right": np.array([0.5, -0.5, 1.0]),
+        },
+        2,
+        2,
+        paths_per_pixel=1,
+        max_bounces=1,
+        seed=2,
+    )
+    assert traced.seg_pixel.size > 0

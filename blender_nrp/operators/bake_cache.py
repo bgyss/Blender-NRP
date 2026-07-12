@@ -28,6 +28,7 @@ if bpy is not None:
             max_bounces=settings.max_bounces,
             packed=settings.packed_cache,
             reference_check=True,
+            torch_device=settings.train_device,
             tracer_engine=settings.tracer_engine,
         )
 

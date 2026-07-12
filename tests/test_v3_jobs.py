@@ -154,3 +154,44 @@ def test_runpod_adapter_creates_polls_fetches_and_deletes_pod(tmp_path):
     backend.cancel(pod_id)
     assert ("POST", "/pods",) == api_calls[0][:2]
     assert ("DELETE", "/pods/pod-1") in [call[:2] for call in api_calls]
+
+
+def test_runpod_adapter_recovers_persisted_pod_after_backend_restart(tmp_path):
+    def request(method, path, payload):
+        if method == "POST":
+            return {"id": "pod-recover", "costPerHr": 0.25}
+        return {
+            "desiredStatus": "RUNNING",
+            "publicIp": "203.0.113.11",
+            "portMappings": {"22": 2233},
+            "costPerHr": 0.25,
+        }
+
+    def runner(command):
+        if "cat" in command:
+            progress = JobProgress(
+                "delegate", "running", stage="Remote worker", message="still running"
+            )
+            return type("Result", (), {"stdout": json.dumps(progress.to_dict())})()
+        return type("Result", (), {"stdout": ""})()
+
+    first = RunPodExecutionBackend(
+        tmp_path,
+        api_key="secret",
+        image_name="registry/blender-nrp:latest",
+        worker_root="/opt/Blender-NRP",
+        requester=request,
+        ssh_runner=runner,
+    )
+    job_id = first.submit(BakeJob("scene", "scene.blend", str(tmp_path)))
+    restarted = RunPodExecutionBackend(
+        tmp_path,
+        api_key="secret",
+        image_name="registry/blender-nrp:latest",
+        worker_root="/opt/Blender-NRP",
+        requester=request,
+        ssh_runner=runner,
+    )
+    progress = restarted.status(job_id)
+    assert progress.state == "running"
+    assert progress.cost_per_hour == 0.25

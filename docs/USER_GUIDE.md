@@ -177,9 +177,15 @@ the same bundle through the pod's SSH port. Build [Dockerfile.worker](../Dockerf
 as the starting image contract and provide an authorized SSH key through the image
 or a mounted secret.
 
+The add-on reconciles persisted jobs once at startup and exposes **Reconcile Jobs**
+for a manual refresh. Active work stays in the queue; completed work is removed;
+missing backend configuration is surfaced as an orphaned/failed status instead of
+being silently forgotten.
+
 For reference matching, use **Match Reference** in Advanced. It writes
-`match_reference_before.png`, `match_reference_after.png`, and a pending solved rig;
-the scene is unchanged until **Apply**. **Discard** removes the pending result.
+`match_reference_before.png`, `match_reference_after.png`, a center-wipe
+`match_reference_wipe.png`, and a pending solved rig; the scene is unchanged until
+**Apply**. **Discard** removes the pending result.
 
 This is the canonical manual test sequence. Follow it in order to confirm the whole
 pipeline is wired correctly.

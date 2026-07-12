@@ -19,7 +19,16 @@ from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import Protocol
 
-from .jobs import BakeJob, Job, JobProgress, SolveJob, TrainJob, read_progress, write_job
+from .jobs import (
+    BakeJob,
+    Job,
+    JobProgress,
+    SolveJob,
+    TrainJob,
+    read_job,
+    read_progress,
+    write_job,
+)
 
 
 class ExecutionBackend(Protocol):
@@ -372,9 +381,26 @@ class RunPodExecutionBackend:
             },
         )
         pod_id = str(pod["id"])
+        recovery_dir = self.queue_dir / "runpod" / pod_id
+        recovery_dir.mkdir(parents=True, exist_ok=True)
+        write_job(recovery_dir / "job.json", job)
+        (recovery_dir / "pod.json").write_text(
+            json.dumps(
+                {
+                    "pod_id": pod_id,
+                    "submitted_wall": time.time(),
+                    "cost_per_hour": float(pod.get("costPerHr", 0.0) or 0.0),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         self._jobs[pod_id] = {
             "job": job,
             "submitted": time.monotonic(),
+            "submitted_wall": time.time(),
             "cost_per_hour": float(pod.get("costPerHr", 0.0) or 0.0),
             "pod": pod,
             "ssh": None,
@@ -382,14 +408,33 @@ class RunPodExecutionBackend:
         }
         return pod_id
 
+    def _recover(self, job_id: str) -> dict | None:
+        directory = self.queue_dir / "runpod" / job_id
+        job_path, metadata_path = directory / "job.json", directory / "pod.json"
+        if not job_path.exists() or not metadata_path.exists():
+            return None
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        return {
+            "job": read_job(job_path),
+            "submitted": time.monotonic(),
+            "submitted_wall": float(metadata.get("submitted_wall", time.time())),
+            "cost_per_hour": float(metadata.get("cost_per_hour", 0.0)),
+            "pod": {},
+            "ssh": None,
+            "delegate_id": None,
+        }
+
     def status(self, job_id: str) -> JobProgress:
         record = self._jobs.get(job_id)
         if record is None:
-            return JobProgress(job_id, "failed", stage="RunPod", message="unknown pod")
+            record = self._recover(job_id)
+            if record is None:
+                return JobProgress(job_id, "failed", stage="RunPod", message="unknown pod")
+            self._jobs[job_id] = record
         pod = self.requester("GET", f"/pods/{job_id}", None)
         record["pod"] = pod
         cost = record["cost_per_hour"]
-        accrued = cost * ((time.monotonic() - record["submitted"]) / 3600.0)
+        accrued = cost * max(0.0, (time.time() - record["submitted_wall"]) / 3600.0)
         state = str(pod.get("desiredStatus", pod.get("status", ""))).upper()
         if state in {"TERMINATED", "EXITED"}:
             return JobProgress(

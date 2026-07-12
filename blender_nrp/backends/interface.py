@@ -25,6 +25,7 @@ class BakeSettings:
     packed: bool = False
     reference_check: bool = False
     reference_spp: int = 16
+    torch_device: str = "auto"
     tracer_engine: str = "auto"  # auto | python | torch_mesh | torch_analytic
 
 

@@ -37,6 +37,7 @@ def execute(job: BakeJob, progress) -> dict[str, Path]:
             paths_per_pixel=job.paths_per_pixel,
             max_bounces=job.max_bounces,
             packed=job.packed,
+            torch_device=job.torch_device,
             tracer_engine=job.tracer_engine,
             reference_check=context is not None,
         ),

@@ -24,11 +24,12 @@ if bpy is not None:
     from ._helpers import cancel_with_status, finish_with_status
     from .optimize_lights import _load_target
 
-    def _paths(cache_path: Path) -> tuple[Path, Path, Path]:
+    def _paths(cache_path: Path) -> tuple[Path, Path, Path, Path]:
         return (
             cache_path.parent / "match_reference_pending.json",
             cache_path.parent / "match_reference_before.png",
             cache_path.parent / "match_reference_after.png",
+            cache_path.parent / "match_reference_wipe.png",
         )
 
     class BLENDER_NRP_OT_match_reference(bpy.types.Operator):
@@ -92,7 +93,7 @@ if bpy is not None:
 
                     report = optimize_lights_fallback(arrays, lights, target, locks=locks)
                 solved = tuple(light_from_dict(item) for item in report["optimized_lights"])
-                pending, before_path, after_path = _paths(cache_path)
+                pending, before_path, after_path, wipe_path = _paths(cache_path)
                 original_rig = LightRig(lights, scene_id=settings.scene_id)
                 solved_rig = LightRig(solved, scene_id=settings.scene_id)
                 pending.write_text(
@@ -108,8 +109,14 @@ if bpy is not None:
                     + "\n",
                     encoding="utf-8",
                 )
-                write_png_rgb(before_path, np.clip(gather_hdr(arrays, lights), 0.0, 1.0))
-                write_png_rgb(after_path, np.clip(gather_hdr(arrays, solved), 0.0, 1.0))
+                before = np.clip(gather_hdr(arrays, lights), 0.0, 1.0)
+                after = np.clip(gather_hdr(arrays, solved), 0.0, 1.0)
+                write_png_rgb(before_path, before)
+                write_png_rgb(after_path, after)
+                split = before.shape[1] // 2
+                wipe = before.copy()
+                wipe[:, split:] = after[:, split:]
+                write_png_rgb(wipe_path, wipe)
                 settings.match_pending_path = str(pending)
                 return finish_with_status(
                     self,

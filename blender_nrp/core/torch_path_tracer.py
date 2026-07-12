@@ -29,13 +29,58 @@ class TorchTriangleCaster:
         self.device = torch.device(device)
         self.dtype = torch.float64 if self.device.type == "cpu" else torch.float32
         to = lambda value: torch.as_tensor(value, dtype=self.dtype, device=self.device)  # noqa: E731
-        vertex_array = to(vertices)
-        triangles = torch.as_tensor(triangles, dtype=torch.long, device=self.device)
-        self.v0 = vertex_array[triangles[:, 0]]
-        self.e1 = vertex_array[triangles[:, 1]] - self.v0
-        self.e2 = vertex_array[triangles[:, 2]] - self.v0
-        self.normals = to(normals)
-        self.albedos = to(albedos)
+        vertex_np = np.asarray(vertices, dtype=np.float64)
+        triangle_np = np.asarray(triangles, dtype=np.int64)
+        tri_vertices = vertex_np[triangle_np]
+        tri_min = tri_vertices.min(axis=1)
+        tri_max = tri_vertices.max(axis=1)
+        centers = (tri_min + tri_max) * 0.5
+        nodes: list[tuple] = []
+        order: list[int] = []
+
+        def build(indices: np.ndarray) -> int:
+            node_index = len(nodes)
+            bounds_min = tri_min[indices].min(axis=0)
+            bounds_max = tri_max[indices].max(axis=0)
+            nodes.append((bounds_min, bounds_max, -1, -1, 0, 0))
+            if indices.size <= 8:
+                start = len(order)
+                order.extend(int(index) for index in indices)
+                nodes[node_index] = (
+                    bounds_min, bounds_max, -1, -1, start, int(indices.size)
+                )
+                return node_index
+            axis = int(np.argmax(bounds_max - bounds_min))
+            sorted_indices = indices[np.argsort(centers[indices, axis], kind="stable")]
+            middle = sorted_indices.size // 2
+            left = build(sorted_indices[:middle])
+            right = build(sorted_indices[middle:])
+            nodes[node_index] = (bounds_min, bounds_max, left, right, 0, 0)
+            return node_index
+
+        build(np.arange(triangle_np.shape[0], dtype=np.int64))
+        triangle_np = triangle_np[np.asarray(order, dtype=np.int64)]
+        self.v0 = to(vertex_np[triangle_np[:, 0]])
+        self.e1 = to(vertex_np[triangle_np[:, 1]] - vertex_np[triangle_np[:, 0]])
+        self.e2 = to(vertex_np[triangle_np[:, 2]] - vertex_np[triangle_np[:, 0]])
+        order_np = np.asarray(order, dtype=np.int64)
+        self.normals = to(np.asarray(normals, dtype=np.float64)[order_np])
+        self.albedos = to(np.asarray(albedos, dtype=np.float64)[order_np])
+        self.node_min = to(np.asarray([node[0] for node in nodes]))
+        self.node_max = to(np.asarray([node[1] for node in nodes]))
+        self.node_left = torch.as_tensor(
+            [node[2] for node in nodes], dtype=torch.long, device=self.device
+        )
+        self.node_right = torch.as_tensor(
+            [node[3] for node in nodes], dtype=torch.long, device=self.device
+        )
+        self.node_start = torch.as_tensor(
+            [node[4] for node in nodes], dtype=torch.long, device=self.device
+        )
+        self.node_count = torch.as_tensor(
+            [node[5] for node in nodes], dtype=torch.long, device=self.device
+        )
+        self.bvh_node_count = len(nodes)
 
     def cast(self, origins, dirs):
         torch = self.torch
@@ -43,16 +88,27 @@ class TorchTriangleCaster:
         best_t = torch.full((count,), torch.inf, dtype=self.dtype, device=self.device)
         best_index = torch.zeros(count, dtype=torch.long, device=self.device)
         eps = 1e-8
-        for start in range(0, self.v0.shape[0], 4096):
-            stop = min(start + 4096, self.v0.shape[0])
+        stack = torch.full((count, 64), -1, dtype=torch.long, device=self.device)
+        top = torch.ones(count, dtype=torch.long, device=self.device)
+        stack[:, 0] = 0
+
+        def box_hit(rows, node_ids):
+            inv = torch.where(dirs[rows].abs() > eps, 1.0 / dirs[rows], torch.inf)
+            t0 = (self.node_min[node_ids] - origins[rows]) * inv
+            t1 = (self.node_max[node_ids] - origins[rows]) * inv
+            near = torch.minimum(t0, t1).amax(dim=1)
+            far = torch.maximum(t0, t1).amin(dim=1)
+            return (far >= near.clamp_min(0.0)) & (near < best_t[rows])
+
+        def intersect_leaf(rows, start, stop):
             e1, e2, v0 = self.e1[start:stop], self.e2[start:stop], self.v0[start:stop]
-            pvec = torch.linalg.cross(dirs[:, None, :], e2[None, :, :])
+            pvec = torch.linalg.cross(dirs[rows, None, :], e2[None, :, :])
             det = (e1[None, :, :] * pvec).sum(dim=2)
             inv_det = torch.where(det.abs() > eps, 1.0 / det, torch.zeros_like(det))
-            tvec = origins[:, None, :] - v0[None, :, :]
+            tvec = origins[rows, None, :] - v0[None, :, :]
             u = (tvec * pvec).sum(dim=2) * inv_det
             qvec = torch.linalg.cross(tvec, e1[None, :, :])
-            v = (dirs[:, None, :] * qvec).sum(dim=2) * inv_det
+            v = (dirs[rows, None, :] * qvec).sum(dim=2) * inv_det
             t = (e2[None, :, :] * qvec).sum(dim=2) * inv_det
             valid = (
                 (det.abs() > eps) & (u >= 0.0) & (u <= 1.0) & (v >= 0.0)
@@ -60,9 +116,33 @@ class TorchTriangleCaster:
             )
             t = torch.where(valid, t, torch.inf)
             chunk_t, chunk_index = t.min(dim=1)
-            improve = chunk_t < best_t
-            best_t = torch.where(improve, chunk_t, best_t)
-            best_index = torch.where(improve, chunk_index + start, best_index)
+            improve = chunk_t < best_t[rows]
+            selected_rows = rows[improve]
+            best_t[selected_rows] = chunk_t[improve]
+            best_index[selected_rows] = chunk_index[improve] + start
+
+        while bool((top > 0).any()):
+            rows = torch.nonzero(top > 0, as_tuple=False).squeeze(1)
+            top[rows] -= 1
+            node_ids = stack[rows, top[rows]]
+            for node_id in torch.unique(node_ids).tolist():
+                node_rows = rows[node_ids == node_id]
+                node_tensor = torch.full_like(node_rows, int(node_id))
+                visible = box_hit(node_rows, node_tensor)
+                node_rows = node_rows[visible]
+                if not node_rows.numel():
+                    continue
+                start = int(self.node_start[node_id])
+                leaf_count = int(self.node_count[node_id])
+                if leaf_count:
+                    intersect_leaf(node_rows, start, start + leaf_count)
+                    continue
+                children = (int(self.node_left[node_id]), int(self.node_right[node_id]))
+                if int(top[node_rows].max()) + len(children) >= stack.shape[1]:
+                    raise RuntimeError("torch BVH traversal stack overflow")
+                for child in children:
+                    stack[node_rows, top[node_rows]] = child
+                    top[node_rows] += 1
         hit = torch.isfinite(best_t)
         position = origins + torch.where(hit, best_t, torch.zeros_like(best_t))[:, None] * dirs
         normal = self.normals[best_index]

@@ -61,8 +61,12 @@ if bpy is not None:
         if scene is None or backend is None or job_id is None:
             return None
         progress = backend.status(job_id)
+        cost_suffix = ""
+        if progress.accrued_cost is not None:
+            hourly = progress.cost_per_hour or 0.0
+            cost_suffix = f" — ${progress.accrued_cost:.3f} accrued (${hourly:.2f}/h)"
         scene.blender_nrp.status = (
-            f"{progress.stage}: {progress.fraction * 100:.0f}% {progress.message}"
+            f"{progress.stage}: {progress.fraction * 100:.0f}% {progress.message}{cost_suffix}"
         ).strip()
         if progress.state in {"queued", "running"}:
             return 0.25
@@ -92,7 +96,7 @@ if bpy is not None:
                 _state["queue"].add(
                     QueuedJob(
                         train_job_id,
-                        "local",
+                        backend.id if hasattr(backend, "id") else "local",
                         time.time(),
                         str((backend.queue_dir / train_job_id).with_suffix(".json")),
                     )
@@ -103,7 +107,7 @@ if bpy is not None:
             return 0.25
         settings.model_path = str(artifacts["model"])
         bpy.ops.blender_nrp.load_proxy()
-        if not any(obj.get("blender_nrp_light", False) for obj in scene.objects):
+        if not any(obj.get("nrp_light_type") for obj in scene.objects):
             bpy.ops.blender_nrp.create_sphere_light()
         bpy.ops.blender_nrp.relight_preview()
         settings.pipeline_settings_hash = _settings_hash(settings)
@@ -218,7 +222,12 @@ if bpy is not None:
                     "queue": queue,
                 }
             )
-            settings.status = "Baking… submitted to This Machine"
+            compute_label = {
+                "local_subprocess": "This Machine",
+                "ssh": "SSH / LAN Node",
+                "runpod": "RunPod Cloud",
+            }.get(settings.compute, settings.compute)
+            settings.status = f"{stage.title()}… submitted to {compute_label}"
             bpy.app.timers.register(_poll, first_interval=0.1)
             return {"FINISHED"}
 
