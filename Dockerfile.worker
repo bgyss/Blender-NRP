@@ -1,22 +1,40 @@
 # Headless worker image contract for the RunPod adapter.
 # Build with a Blender tarball URL appropriate to the studio's licensed build:
 #   docker build --build-arg BLENDER_URL=... -f Dockerfile.worker .
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+# CPU-only smoke runners may override BASE_IMAGE and TORCH_INDEX_URL; the
+# production default remains the CUDA runtime.
+ARG BASE_IMAGE=nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM ${BASE_IMAGE}
 
 ARG BLENDER_URL
+ARG TORCH_INDEX_URL
+ARG INSTALL_TORCH=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV BLENDER_HOME=/opt/blender
 ENV NRP_WORKER_ROOT=/opt/Blender-NRP
+ENV PATH=/opt/blender:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl python3 python3-pip openssh-server rsync \
+    ca-certificates curl openssh-server rsync xz-utils \
     libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libgl1 \
     && rm -rf /var/lib/apt/lists/*
 RUN test -n "$BLENDER_URL" && mkdir -p "$BLENDER_HOME" \
-    && curl -fsSL "$BLENDER_URL" | tar -xz --strip-components=1 -C "$BLENDER_HOME"
+    && curl -fsSL "$BLENDER_URL" | tar -xJ --strip-components=1 -C "$BLENDER_HOME"
 
 COPY . "$NRP_WORKER_ROOT"
-RUN python3 -m pip install --no-cache-dir --break-system-packages -e "$NRP_WORKER_ROOT"
+RUN BLENDER_PYTHON="$(find "$BLENDER_HOME" -path '*/python/bin/python3.*' -type f | head -n 1)" \
+    && test -n "$BLENDER_PYTHON" \
+    && "$BLENDER_PYTHON" -m ensurepip \
+    && if test "$INSTALL_TORCH" = "0"; then \
+         "$BLENDER_PYTHON" -m pip install --no-cache-dir -e "$NRP_WORKER_ROOT"; \
+       elif test -n "$TORCH_INDEX_URL"; then \
+         "$BLENDER_PYTHON" -m pip install --no-cache-dir \
+           --index-url "$TORCH_INDEX_URL" torch \
+         && "$BLENDER_PYTHON" -m pip install --no-cache-dir -e "$NRP_WORKER_ROOT"; \
+       else \
+         "$BLENDER_PYTHON" -m pip install --no-cache-dir -e "$NRP_WORKER_ROOT[torch]"; \
+       fi \
+    && ln -s "$BLENDER_PYTHON" /usr/local/bin/nrp-python
 RUN mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh
 
 # Studio/RunPod deployment supplies authorized_keys through its image or volume.

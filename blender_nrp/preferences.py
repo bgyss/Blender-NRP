@@ -21,6 +21,7 @@ if bpy is not None:
             name="Remote Worker Root", default="~/Blender-NRP"
         )
         ssh_blender_binary: bpy.props.StringProperty(name="Remote Blender", default="blender")
+        ssh_python_binary: bpy.props.StringProperty(name="Remote Python", default="python3")
         runpod_api_key: bpy.props.StringProperty(
             name="RunPod API Key", subtype="PASSWORD", default=""
         )
@@ -42,6 +43,7 @@ if bpy is not None:
             layout.prop(self, "ssh_remote_root")
             layout.prop(self, "ssh_worker_root")
             layout.prop(self, "ssh_blender_binary")
+            layout.prop(self, "ssh_python_binary")
             layout.label(text="Credentials remain in your SSH agent or config, never in a .blend.")
             layout.separator()
             layout.label(text="RunPod GPU pods")

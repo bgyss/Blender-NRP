@@ -7,7 +7,7 @@ The project is based on Sancho et al.'s Disney Research paper
 and derives its data contracts and torch proxy behavior from the
 [`bgyss/nrp`](https://github.com/bgyss/nrp) sample reimplementation.
 
-V3 (`0.3.0`) begins the production-workflow path while retaining V2's compatibility
+V3 (`0.4.0`) adds remote execution and the production workflow while retaining V2's compatibility
 contracts and correctness-first approach:
 
 - bake a light-agnostic multi-bounce path cache (Cycles G-buffer passes, escape segments, optional packed fp16 + rgb9e5 layout) with a modal, cancellable operator,

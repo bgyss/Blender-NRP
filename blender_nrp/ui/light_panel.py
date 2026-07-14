@@ -52,8 +52,8 @@ if bpy is not None:
         obj["nrp_color"] = list(kelvin_to_rgb(_get_kelvin(obj), float(value)))
         _tag_update(obj)
 
-    def _get_flag(name: str):
-        return lambda obj: bool(obj.get(name, False))
+    def _get_flag(name: str, default: bool = False):
+        return lambda obj: bool(obj.get(name, default))
 
     def _set_flag(name: str):
         def setter(obj: bpy.types.Object, value: bool) -> None:
@@ -144,7 +144,7 @@ if bpy is not None:
             "nrp_enabled_prop",
             bpy.props.BoolProperty(
                 name="Enabled",
-                get=_get_flag("nrp_enabled"),
+                get=_get_flag("nrp_enabled", True),
                 set=_set_flag("nrp_enabled"),
                 default=True,
             ),
@@ -301,10 +301,8 @@ if bpy is not None:
                 )
                 select.object_name = obj.name
                 row.prop(obj, "name", text="")
-                marker = (
-                    "S" if obj.get("nrp_solo") else "M" if obj.get("nrp_muted") else kind[0].upper()
-                )
-                row.label(text=marker)
+                row.label(text="", icon="LIGHT_POINT" if kind == "sphere" else "LIGHT_AREA")
+                row.prop(obj, "nrp_color_prop", text="")
                 actions = row.row(align=True)
                 duplicate = actions.operator(
                     "blender_nrp.duplicate_light", text="", icon="DUPLICATE"
@@ -313,9 +311,22 @@ if bpy is not None:
                 delete = actions.operator("blender_nrp.delete_light", text="", icon="X")
                 delete.object_name = obj.name
                 row = box.row(align=True)
-                row.prop(obj, "nrp_enabled_prop", text="", toggle=True)
+                row.prop(obj, "nrp_enabled_prop", text="On", toggle=True)
+                row.prop(obj, "nrp_solo_prop", text="S", toggle=True)
+                row.prop(obj, "nrp_mute_prop", text="M", toggle=True)
                 row.prop(obj, "nrp_stops_prop", text="EV")
                 row.prop(obj, "nrp_kelvin_prop", text="K")
+                locks = box.row(align=True)
+                locks.label(text="Lock")
+                locks.prop(obj, "nrp_lock_position_prop", text="P", toggle=True)
+                locks.prop(obj, "nrp_lock_color_prop", text="C", toggle=True)
+                locks.prop(obj, "nrp_lock_intensity_prop", text="I", toggle=True)
+                if kind == "sphere":
+                    locks.prop(obj, "nrp_lock_radius_prop", text="R", toggle=True)
+                else:
+                    locks.prop(obj, "nrp_lock_width_prop", text="W", toggle=True)
+                    locks.prop(obj, "nrp_lock_height_prop", text="H", toggle=True)
+                    locks.prop(obj, "nrp_lock_normal_prop", text="N", toggle=True)
 
     CLASSES = (BLENDER_NRP_PT_light, BLENDER_NRP_PT_gaffer)
 

@@ -17,10 +17,12 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 if bpy is not None:
+    import json
     from pathlib import Path
 
     from . import proxy_runtime
     from .core.cost import estimate_bake_seconds, estimate_cost_usd
+    from .core.execution import ExecutionQueue
     from .preview import PREVIEW_IMAGE_NAME
 
     def _exists(path_str: str) -> bool:
@@ -30,6 +32,49 @@ if bpy is not None:
             return Path(bpy.path.abspath(path_str)).exists()
         except Exception:
             return False
+
+    def _draw_pipeline_details(layout, settings) -> None:
+        if not settings.last_report_path and not settings.last_error_details:
+            return
+        layout.prop(
+            settings,
+            "show_details",
+            toggle=True,
+            icon="DISCLOSURE_TRI_DOWN" if settings.show_details else "DISCLOSURE_TRI_RIGHT",
+        )
+        if not settings.show_details:
+            return
+        details = layout.box()
+        if settings.last_report_path:
+            report_path = Path(bpy.path.abspath(settings.last_report_path))
+            details.label(text=f"Report: {report_path.name}", icon="TEXT")
+            try:
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                details.label(text=f"Could not read report: {exc}", icon="ERROR")
+            else:
+                if "ok" in report:
+                    details.label(
+                        text=f"Result: {'OK' if report['ok'] else 'FAILED'}",
+                        icon="CHECKMARK" if report["ok"] else "ERROR",
+                    )
+                if report.get("error"):
+                    details.label(text=str(report["error"])[:180], icon="ERROR")
+                for key in ("warnings", "limitations", "approximation_limits"):
+                    values = report.get(key) or []
+                    if values:
+                        details.label(text=key.replace("_", " ").title())
+                        for value in values[:6]:
+                            details.label(text=str(value)[:180], icon="DOT")
+        if settings.last_error_details:
+            details.label(text="Worker details", icon="CONSOLE")
+            lines = [
+                line.strip()
+                for line in settings.last_error_details.splitlines()
+                if line.strip()
+            ]
+            for line in lines[-8:]:
+                details.label(text=line[:180])
 
     class BLENDER_NRP_PT_main(bpy.types.Panel):
         bl_label = "Blender-NRP"
@@ -87,6 +132,29 @@ if bpy is not None:
             row.operator("blender_nrp.make_relightable", icon="PLAY")
             row.operator("blender_nrp.cancel_make_relightable", text="", icon="X")
             box.operator("blender_nrp.reconcile_jobs", icon="FILE_REFRESH")
+            queue_dir = Path(bpy.path.abspath(settings.output_dir)) / ".nrp_jobs"
+            try:
+                queued_jobs = ExecutionQueue(queue_dir).load()
+            except (OSError, ValueError):
+                queued_jobs = []
+                box.label(text="Persisted job queue is unreadable", icon="ERROR")
+            if queued_jobs:
+                box.label(text="Active / unresolved jobs", icon="SORTTIME")
+                for queued in queued_jobs:
+                    queued_row = box.row(align=True)
+                    queued_row.label(
+                        text=f"{queued.backend_id}: {queued.job_id[:12]}", icon="RENDER_ANIMATION"
+                    )
+                    fetch = queued_row.operator(
+                        "blender_nrp.fetch_persisted_job", text="Fetch & Stop", icon="IMPORT"
+                    )
+                    fetch.job_id = queued.job_id
+                    fetch.backend_id = queued.backend_id
+                    cancel = queued_row.operator(
+                        "blender_nrp.cancel_persisted_job", text="", icon="CANCEL"
+                    )
+                    cancel.job_id = queued.job_id
+                    cancel.backend_id = queued.backend_id
             box.prop(settings, "show_advanced", toggle=True)
 
             if not settings.show_advanced:
@@ -94,6 +162,7 @@ if bpy is not None:
                 layout.label(text="Advanced controls are hidden", icon="PREFERENCES")
                 layout.separator()
                 layout.label(text=settings.status, icon="INFO")
+                _draw_pipeline_details(layout, settings)
                 return
 
             # --- Scene setup ------------------------------------------------
@@ -165,6 +234,9 @@ if bpy is not None:
                 "blender_nrp.match_reference", text="Match Reference", icon="IMAGE_REFERENCE"
             )
             if settings.match_pending_path:
+                sub.operator(
+                    "blender_nrp.review_match_reference", text="Review Wipe", icon="IMAGE_DATA"
+                )
                 row = sub.row(align=True)
                 row.operator("blender_nrp.apply_match_reference", text="Apply", icon="CHECKMARK")
                 row.operator("blender_nrp.discard_match_reference", text="Discard", icon="X")
@@ -194,6 +266,7 @@ if bpy is not None:
             # --- Status ----------------------------------------------------
             layout.separator()
             layout.label(text=settings.status, icon="INFO")
+            _draw_pipeline_details(layout, settings)
 
 
 CLASSES = (BLENDER_NRP_PT_main,) if bpy is not None else ()

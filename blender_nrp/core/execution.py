@@ -7,6 +7,8 @@ operators, which allows the exact same job bundle to move to SSH/cloud backends.
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -28,6 +30,7 @@ from .jobs import (
     read_job,
     read_progress,
     write_job,
+    write_progress,
 )
 
 
@@ -84,7 +87,11 @@ class ExecutionQueue:
         self.save([item for item in self.load() if item.job_id != job_id])
 
     def reconcile(self, backends: dict[str, ExecutionBackend]) -> dict[str, JobProgress]:
-        """Return fresh statuses and retain only work that is not terminal."""
+        """Return fresh statuses and retain work until it is fetched or dismissed.
+
+        A succeeded cloud worker may still be billing. Dropping it here would make
+        the pod invisible before ``fetch`` has downloaded artifacts and stopped it.
+        """
         remaining: list[QueuedJob] = []
         statuses: dict[str, JobProgress] = {}
         for record in self.load():
@@ -100,8 +107,11 @@ class ExecutionQueue:
                 continue
             progress = backend.status(record.job_id)
             statuses[record.job_id] = progress
-            if progress.state in {"queued", "running"}:
-                remaining.append(record)
+            # Terminal failures must remain visible until the user explicitly
+            # cancels/dismisses them. A cloud worker can still be billable even
+            # when its job process failed, and dropping the record here would
+            # make that instance impossible to recover from Blender's UI.
+            remaining.append(record)
         self.save(remaining)
         return statuses
 
@@ -119,6 +129,9 @@ class LocalSubprocessBackend:
         base = self.queue_dir / job_id
         return base.with_suffix(".json"), base.with_suffix(".status.json")
 
+    def _pid_path(self, job_id: str) -> Path:
+        return (self.queue_dir / job_id).with_suffix(".pid")
+
     def submit(self, job: Job) -> str:
         job_id = uuid.uuid4().hex
         job_path, status_path = self._paths(job_id)
@@ -135,7 +148,9 @@ class LocalSubprocessBackend:
             else:
                 command.append("--factory-startup")
             command += ["--python", str(script), "--", str(job_path), "--status", str(status_path)]
-        self._processes[job_id] = subprocess.Popen(command, start_new_session=True)
+        process = subprocess.Popen(command, start_new_session=True)
+        self._processes[job_id] = process
+        self._pid_path(job_id).write_text(f"{process.pid}\n", encoding="utf-8")
         return job_id
 
     def status(self, job_id: str) -> JobProgress:
@@ -147,6 +162,15 @@ class LocalSubprocessBackend:
             return JobProgress(
                 job_id, "failed", stage="Worker", message="worker exited before reporting"
             )
+        pid_path = self._pid_path(job_id)
+        if proc is None and pid_path.exists():
+            try:
+                os.kill(int(pid_path.read_text(encoding="utf-8")), 0)
+            except (OSError, ValueError):
+                return JobProgress(
+                    job_id, "failed", stage="Worker", message="worker exited before reporting"
+                )
+            return JobProgress(job_id, "running", stage="Worker", message="worker is running")
         return JobProgress(job_id, "queued")
 
     def fetch(self, job_id: str) -> dict[str, Path]:
@@ -159,6 +183,12 @@ class LocalSubprocessBackend:
         proc = self._processes.get(job_id)
         if proc is not None and proc.poll() is None:
             proc.terminate()
+        elif self._pid_path(job_id).exists():
+            try:
+                pid = int(self._pid_path(job_id).read_text(encoding="utf-8"))
+                os.kill(pid, signal.SIGTERM)
+            except (OSError, ValueError):
+                pass
 
 
 CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
@@ -182,6 +212,7 @@ class SshExecutionBackend:
         remote_root: str,
         worker_root: str,
         blender_binary: str = "blender",
+        python_binary: str = "python3",
         ssh_port: int = 22,
         runner: CommandRunner | None = None,
     ):
@@ -193,6 +224,7 @@ class SshExecutionBackend:
         self.remote_root = remote_root.rstrip("/")
         self.worker_root = worker_root.rstrip("/")
         self.blender_binary = blender_binary
+        self.python_binary = python_binary
         self.ssh_port = int(ssh_port)
         self.runner = runner or self._run
         self._remote: dict[str, dict[str, str]] = {}
@@ -218,8 +250,15 @@ class SshExecutionBackend:
             "status": f"{self.remote_root}/{job_id}/status.json",
         }
 
-    def submit(self, job: Job) -> str:
-        job_id = uuid.uuid4().hex
+    def submit(self, job: Job, *, job_id: str | None = None) -> str:
+        """Stage and launch ``job`` under a stable remote identifier.
+
+        ``job_id`` is optional for normal callers, but lets a cloud adapter retry
+        an interrupted handoff without starting a second worker. The remote
+        launch guard is an atomic directory, so a retry cannot start Blender a
+        second time.
+        """
+        job_id = job_id or uuid.uuid4().hex
         job_path, _status_path, _artifacts = self._paths(job_id)
         job_path.parent.mkdir(parents=True, exist_ok=True)
         remote_dir = self._remote_info(job_id)["dir"]
@@ -262,12 +301,34 @@ class SshExecutionBackend:
             self.runner(self._rsync(source, f"{self.host}:{target}"))
         worker = f"{self.worker_root}/scripts/run_{job.kind}_job.py"
         status = f"{remote_dir}/status.json"
-        scene_arg = remote_scene if isinstance(job, BakeJob) else "--factory-startup"
-        arguments = " ".join(
-            (scene_arg, "--python", worker, "--", f"{remote_dir}/job.json", "--status", status)
-        )
+        if isinstance(job, BakeJob):
+            arguments = " ".join(
+                (
+                    self.blender_binary,
+                    "--background",
+                    remote_scene,
+                    "--python",
+                    worker,
+                    "--",
+                    f"{remote_dir}/job.json",
+                    "--status",
+                    status,
+                )
+            )
+        else:
+            arguments = " ".join(
+                (
+                    self.python_binary,
+                    worker,
+                    f"{remote_dir}/job.json",
+                    "--status",
+                    status,
+                )
+            )
+        launch_guard = f"{remote_dir}/.worker-launched"
         command = (
-            f"nohup {self.blender_binary} --background {arguments} "
+            f"mkdir {launch_guard} 2>/dev/null && "
+            f"nohup {arguments} "
             f"> {remote_dir}/worker.log 2>&1 &"
         )
         self.runner(self._ssh(command))
@@ -282,12 +343,30 @@ class SshExecutionBackend:
             payload = result.stdout.strip()
             if payload:
                 local_status.write_text(payload + "\n", encoding="utf-8")
-                return read_progress(local_status)
+                progress = read_progress(local_status)
+                if progress.state == "failed":
+                    self._localize_failure_reports(job_id, progress)
+                    write_progress(local_status, progress)
+                return progress
         except subprocess.CalledProcessError:
             pass
         if local_job.exists():
             return JobProgress(job_id, "running", stage="Remote worker", message="awaiting status")
         return JobProgress(job_id, "failed", stage="Remote worker", message="job record is missing")
+
+    def _localize_failure_reports(self, job_id: str, progress: JobProgress) -> None:
+        """Best-effort pull of machine-readable reports from a failed worker."""
+        _job_path, _status_path, artifacts = self._paths(job_id)
+        artifacts.mkdir(parents=True, exist_ok=True)
+        for name, remote_path in tuple(progress.artifacts.items()):
+            if not name.endswith("_report"):
+                continue
+            local_path = artifacts / Path(remote_path).name
+            try:
+                self.runner(self._rsync(f"{self.host}:{remote_path}", str(local_path)))
+            except subprocess.CalledProcessError:
+                continue
+            progress.artifacts[name] = str(local_path)
 
     def fetch(self, job_id: str) -> dict[str, Path]:
         progress = self.status(job_id)
@@ -300,9 +379,7 @@ class SshExecutionBackend:
         return {name: artifacts / Path(path).name for name, path in progress.artifacts.items()}
 
     def cancel(self, job_id: str) -> None:
-        remote = self._remote.get(job_id)
-        if remote is None:
-            return
+        remote = self._remote.setdefault(job_id, self._remote_info(job_id))
         self.runner(self._ssh("pkill", "-f", f"{remote['dir']}/job.json"))
 
 
@@ -384,29 +461,41 @@ class RunPodExecutionBackend:
         recovery_dir = self.queue_dir / "runpod" / pod_id
         recovery_dir.mkdir(parents=True, exist_ok=True)
         write_job(recovery_dir / "job.json", job)
-        (recovery_dir / "pod.json").write_text(
-            json.dumps(
-                {
-                    "pod_id": pod_id,
-                    "submitted_wall": time.time(),
-                    "cost_per_hour": float(pod.get("costPerHr", 0.0) or 0.0),
-                },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        submitted_wall = time.time()
         self._jobs[pod_id] = {
             "job": job,
             "submitted": time.monotonic(),
-            "submitted_wall": time.time(),
+            "submitted_wall": submitted_wall,
             "cost_per_hour": float(pod.get("costPerHr", 0.0) or 0.0),
             "pod": pod,
             "ssh": None,
             "delegate_id": None,
+            "ssh_host": None,
+            "ssh_port": None,
+            "handoff_complete": False,
+            "terminated": False,
         }
+        self._persist_record(pod_id, self._jobs[pod_id])
         return pod_id
+
+    def _persist_record(self, job_id: str, record: dict) -> None:
+        """Persist only restart metadata; credentials never enter the queue."""
+        path = self.queue_dir / "runpod" / job_id / "pod.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "pod_id": job_id,
+            "submitted_wall": record["submitted_wall"],
+            "cost_per_hour": record["cost_per_hour"],
+            "delegate_id": record.get("delegate_id"),
+            "ssh_host": record.get("ssh_host"),
+            "ssh_port": record.get("ssh_port"),
+            "handoff_complete": bool(record.get("handoff_complete", False)),
+        }
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        temporary.replace(path)
 
     def _recover(self, job_id: str) -> dict | None:
         directory = self.queue_dir / "runpod" / job_id
@@ -421,7 +510,11 @@ class RunPodExecutionBackend:
             "cost_per_hour": float(metadata.get("cost_per_hour", 0.0)),
             "pod": {},
             "ssh": None,
-            "delegate_id": None,
+            "delegate_id": metadata.get("delegate_id"),
+            "ssh_host": metadata.get("ssh_host"),
+            "ssh_port": metadata.get("ssh_port"),
+            "handoff_complete": bool(metadata.get("handoff_complete", False)),
+            "terminated": False,
         }
 
     def status(self, job_id: str) -> JobProgress:
@@ -458,16 +551,28 @@ class RunPodExecutionBackend:
                     cost_per_hour=cost,
                     accrued_cost=accrued,
                 )
+            record["ssh_host"] = str(ip)
+            record["ssh_port"] = int(port)
+            if not record["delegate_id"]:
+                record["delegate_id"] = f"{job_id}-{record['job'].kind}"
+            # Persist the chosen endpoint and stable delegate before doing any
+            # transfer. If Blender dies during the handoff, restart recovery
+            # retries the same guarded remote launch rather than inventing a job.
+            self._persist_record(job_id, record)
             record["ssh"] = SshExecutionBackend(
                 self.queue_dir / "ssh",
-                host=str(ip),
-                ssh_port=int(port),
+                host=record["ssh_host"],
+                ssh_port=record["ssh_port"],
                 remote_root=self.remote_root,
                 worker_root=self.worker_root,
                 blender_binary="blender",
+                python_binary="nrp-python",
                 runner=self.ssh_runner,
             )
-            record["delegate_id"] = record["ssh"].submit(record["job"])
+            if not record["handoff_complete"]:
+                record["ssh"].submit(record["job"], job_id=record["delegate_id"])
+                record["handoff_complete"] = True
+                self._persist_record(job_id, record)
         progress = record["ssh"].status(record["delegate_id"])
         progress.cost_per_hour = cost
         progress.accrued_cost = accrued
@@ -478,10 +583,19 @@ class RunPodExecutionBackend:
         record = self._jobs[job_id]
         if progress.state != "succeeded":
             raise RuntimeError(f"RunPod job {job_id} is {progress.state}")
-        return record["ssh"].fetch(record["delegate_id"])
+        artifacts = record["ssh"].fetch(record["delegate_id"])
+        self._terminate_pod(job_id, record)
+        return artifacts
+
+    def _terminate_pod(self, job_id: str, record: dict | None = None) -> None:
+        if record is not None and record.get("terminated"):
+            return
+        self.requester("DELETE", f"/pods/{job_id}", None)
+        if record is not None:
+            record["terminated"] = True
 
     def cancel(self, job_id: str) -> None:
         record = self._jobs.get(job_id)
         if record and record["ssh"] is not None:
             record["ssh"].cancel(record["delegate_id"])
-        self.requester("DELETE", f"/pods/{job_id}", None)
+        self._terminate_pod(job_id, record)

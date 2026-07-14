@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import traceback
 from pathlib import Path
@@ -28,6 +29,7 @@ def parse_args(description: str) -> tuple[Path, Path]:
 def run_worker(description: str, execute) -> int:
     job_path, status_path = parse_args(description)
     job_id = job_path.stem
+    job = None
     try:
         job = read_job(job_path)
         write_progress(status_path, JobProgress(job_id, "running", 0.02, "Starting"))
@@ -49,6 +51,34 @@ def run_worker(description: str, execute) -> int:
         )
         return 0
     except Exception as exc:
+        trace = traceback.format_exc(limit=4)
+        artifacts = {}
+        if job is not None:
+            output_dir = Path(job.output_dir)
+            if job.kind == "bake":
+                output_dir /= job.scene_id
+            report_path = output_dir / f"{job.kind}_report.json"
+            if not report_path.exists():
+                report_path.parent.mkdir(parents=True, exist_ok=True)
+                report_path.write_text(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "job_kind": job.kind,
+                            "error": str(exc),
+                            "traceback": trace,
+                            "limitations": [
+                                "Worker failed before all requested artifacts were complete"
+                            ],
+                            "approximation_limits": [],
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+            artifacts[f"{job.kind}_report"] = str(report_path)
         write_progress(
             status_path,
             JobProgress(
@@ -56,7 +86,8 @@ def run_worker(description: str, execute) -> int:
                 "failed",
                 stage="Failed",
                 message=str(exc),
-                error=traceback.format_exc(limit=4),
+                artifacts=artifacts,
+                error=trace,
             ),
         )
         print(traceback.format_exc(), file=sys.stderr)

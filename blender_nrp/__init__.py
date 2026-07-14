@@ -7,7 +7,7 @@ the package can still be imported by normal Python tests outside Blender.
 bl_info = {
     "name": "Blender-NRP",
     "author": "Blender-NRP contributors",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (4, 2, 0),
     "location": "Properties > Scene > Blender-NRP",
     "description": "Bake and relight Neural Render Proxy scenes inside Blender",

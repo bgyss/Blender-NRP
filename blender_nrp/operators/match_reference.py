@@ -24,6 +24,8 @@ if bpy is not None:
     from ._helpers import cancel_with_status, finish_with_status
     from .optimize_lights import _load_target
 
+    MATCH_WIPE_IMAGE = "NRP Match Reference Wipe"
+
     def _paths(cache_path: Path) -> tuple[Path, Path, Path, Path]:
         return (
             cache_path.parent / "match_reference_pending.json",
@@ -31,6 +33,18 @@ if bpy is not None:
             cache_path.parent / "match_reference_after.png",
             cache_path.parent / "match_reference_wipe.png",
         )
+
+    def _show_wipe(context: bpy.types.Context, wipe_path: Path):
+        existing = bpy.data.images.get(MATCH_WIPE_IMAGE)
+        if existing is not None:
+            bpy.data.images.remove(existing)
+        image = bpy.data.images.load(str(wipe_path), check_existing=False)
+        image.name = MATCH_WIPE_IMAGE
+        if context.screen is not None:
+            for area in context.screen.areas:
+                if area.type == "IMAGE_EDITOR":
+                    area.spaces.active.image = image
+        return image
 
     class BLENDER_NRP_OT_match_reference(bpy.types.Operator):
         bl_idname = "blender_nrp.match_reference"
@@ -117,14 +131,34 @@ if bpy is not None:
                 wipe = before.copy()
                 wipe[:, split:] = after[:, split:]
                 write_png_rgb(wipe_path, wipe)
+                _show_wipe(context, wipe_path)
                 settings.match_pending_path = str(pending)
                 return finish_with_status(
                     self,
                     context,
-                    "Match ready for review — before/after written; use Apply or Discard",
+                    "Match ready — review 'NRP Match Reference Wipe', then Apply or Discard",
                 )
             except Exception as exc:
                 return cancel_with_status(self, context, f"Match Reference failed: {exc}")
+
+    class BLENDER_NRP_OT_review_match_reference(bpy.types.Operator):
+        bl_idname = "blender_nrp.review_match_reference"
+        bl_label = "Review Wipe"
+        bl_description = "Load the pending before/after center wipe into Blender's Image Editor"
+
+        def execute(self, context: bpy.types.Context) -> set[str]:
+            pending_path = context.scene.blender_nrp.match_pending_path
+            if not pending_path:
+                return cancel_with_status(self, context, "No pending reference match")
+            wipe_path = Path(bpy.path.abspath(pending_path)).with_name(
+                "match_reference_wipe.png"
+            )
+            if not wipe_path.exists():
+                return cancel_with_status(self, context, "Match review wipe is missing")
+            _show_wipe(context, wipe_path)
+            return finish_with_status(
+                self, context, f"Review '{MATCH_WIPE_IMAGE}' in an Image Editor"
+            )
 
     class BLENDER_NRP_OT_apply_match_reference(bpy.types.Operator):
         bl_idname = "blender_nrp.apply_match_reference"
@@ -166,6 +200,7 @@ if bpy is not None:
 CLASSES = (
     (
         BLENDER_NRP_OT_match_reference,
+        BLENDER_NRP_OT_review_match_reference,
         BLENDER_NRP_OT_apply_match_reference,
         BLENDER_NRP_OT_discard_match_reference,
     )

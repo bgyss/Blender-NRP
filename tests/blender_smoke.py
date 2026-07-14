@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import bpy
@@ -256,6 +257,72 @@ def run() -> None:
             "gather_mse_vs_target_final"
         ] == solve_report["gather_mse_vs_target_initial"]:
             print("NOTE: solver made no change (already at optimum?)")
+
+        # --- V3 one-button local-subprocess chain.
+        # This is intentionally last: it saves the scene, then launches a second
+        # background Blender for baking and training through the public operator.
+        if has_torch:
+            from blender_nrp.operators import make_relightable
+
+            for obj in list(bpy.context.scene.objects):
+                if obj.get("nrp_light_type"):
+                    bpy.data.objects.remove(obj, do_unlink=True)
+            one_button_root = ROOT / "build" / "blender_one_button_smoke"
+            one_button_root.mkdir(parents=True, exist_ok=True)
+            saved_scene = one_button_root / "one_button_scene.blend"
+            bpy.ops.wm.save_as_mainfile(filepath=str(saved_scene))
+            settings.scene_id = "one_button_scene"
+            settings.output_dir = str(one_button_root)
+            settings.compute = "local_subprocess"
+            settings.show_advanced = True
+            settings.quality_preset = "draft"
+            settings.resolution_x = 8
+            settings.resolution_y = 8
+            settings.paths_per_pixel = 2
+            settings.max_bounces = 2
+            settings.train_iterations = 2
+            settings.train_device = "cpu"
+            settings.tracer_engine = "torch_mesh"
+            settings.cache_path = ""
+            settings.model_path = ""
+            assert_finished(
+                bpy.ops.blender_nrp.make_relightable(), "V3 Make Scene Relightable"
+            )
+            if bpy.app.timers.is_registered(make_relightable._poll):
+                bpy.app.timers.unregister(make_relightable._poll)
+            deadline = time.monotonic() + 180.0
+            while make_relightable._state["job_id"] is not None:
+                make_relightable._poll()
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"one-button pipeline timed out: {settings.status}")
+                time.sleep(0.1)
+            if not settings.status.startswith("Scene relightable"):
+                raise AssertionError(f"one-button chain failed: {settings.status}")
+            if not Path(settings.cache_path).exists() or not Path(settings.model_path).exists():
+                raise AssertionError("one-button chain omitted cache or model artifact")
+            one_button_artifacts = one_button_root / settings.scene_id
+            for name in (
+                "path_cache.npz",
+                "metadata.json",
+                "bake_report.json",
+                "model.pt",
+                "train_report.json",
+                "relight_preview.png",
+            ):
+                if not (one_button_artifacts / name).exists():
+                    raise AssertionError(f"one-button chain omitted {name}")
+            if not settings.pipeline_settings_hash or not settings.pipeline_scene_hash:
+                raise AssertionError("one-button chain omitted persisted staleness hashes")
+            if not any(obj.get("nrp_light_type") for obj in bpy.context.scene.objects):
+                raise AssertionError("one-button chain did not create a starter light")
+            from blender_nrp import proxy_runtime
+
+            if proxy_runtime.model is None:
+                raise AssertionError("one-button chain did not auto-load the proxy")
+            if bpy.data.images.get("NRP Relight Preview") is None:
+                raise AssertionError("one-button chain did not open the preview")
+        else:
+            print("torch not available in Blender Python; V3 one-button success path skipped")
 
         print("BLENDER_NRP_SMOKE_OK")
     finally:

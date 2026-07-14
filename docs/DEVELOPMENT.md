@@ -24,11 +24,16 @@ This repository follows a few constraints that make Blender add-ons easier to ma
 
 ## Validation Levels
 
-Use three levels of validation as the project grows:
+Use the repository's validation tiers:
 
-1. Pure-Python tests for metadata, light JSON, path-cache schema, and reports.
-2. Blender background-mode scripts for fixture bake and relight flows.
-3. Manual Blender UI checks for installation, panels, object creation, preview images, and import/export.
+1. Pure-Python tests for metadata, light JSON, path-cache/job schemas, execution
+   backends, torch parity, and reports.
+2. Cross-repo round trips against the sibling `nrp` and ComfyUI implementations;
+   pass `--artifact-dir` to verify worker-produced outputs directly.
+3. Blender background fixture scripts and the full operator smoke.
+4. Manual Blender UI checks, including one-button cancellation/restart reconciliation,
+   gaffer masks, snapshots, and Match Reference apply/discard.
+5. The optional worker-container smoke when a Docker/GPU runner is available.
 
 Run the full Blender operator smoke test with:
 
@@ -36,9 +41,21 @@ Run the full Blender operator smoke test with:
 blender --background --factory-startup --python-exit-code 7 --python tests/blender_smoke.py
 ```
 
-The smoke test creates a tiny scene, registers the add-on, runs the bake, validate,
-train, load, create-light, preview, export, import, and optimize operators, then
-checks the generated artifacts under `build/blender_smoke/`.
+The smoke test creates a tiny scene, registers the add-on, runs the granular V2 chain,
+then drives the V3 one-button local-subprocess backend through cache validation,
+training, proxy auto-load, starter-light creation, preview, and staleness hashes.
+
+Build and smoke the worker container with:
+
+```bash
+docker build --build-arg BLENDER_URL="$BLENDER_URL" -f Dockerfile.worker -t blender-nrp-worker:smoke .
+scripts/container_smoke.sh blender-nrp-worker:smoke
+```
+
+For an image-structure smoke on a runner that cannot install torch, add
+`--build-arg INSTALL_TORCH=0` and invoke the smoke as
+`scripts/container_smoke.sh blender-nrp-worker:smoke python`. This is an analytic
+fallback check only; it does not replace the default torch-mesh container gate.
 
 ## Packaging
 

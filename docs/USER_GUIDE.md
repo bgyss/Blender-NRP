@@ -8,9 +8,10 @@ Blender-NRP is based on Sancho et al.'s Disney Research paper
 and derives its implementation contracts from the
 [`bgyss/nrp`](https://github.com/bgyss/nrp) sample reimplementation.
 
-Blender-NRP V2 replaces the V1 approximations with real implementations: multi-bounce
+Blender-NRP V3 (`0.4.0`) retains V2's real multi-bounce
 path capture with Cycles G-buffer passes, genuine PyTorch proxy training, gradient-based
-inverse light optimization, quad lights, packed caches, and a live in-Blender preview.
+inverse light optimization, quad lights, packed caches, and a live in-Blender preview,
+and adds local/SSH/RunPod workers, the one-button pipeline, and a gaffer-style light list.
 Every remaining approximation is named in the corresponding report JSON, not hidden.
 
 ## Paper And Reference Implementation
@@ -100,7 +101,9 @@ The add-on panel appears in `Scene Properties` as `Blender-NRP`.
 
 ## Panel Overview
 
-Open `Scene Properties > Blender-NRP`. The panel is three numbered stages, each with a
+Open `Scene Properties > Blender-NRP`. The default surface shows **Compute**, **Quality**,
+**Make Scene Relightable**, cancellation, persisted-job reconciliation, and **Advanced**.
+The Advanced surface contains the three numbered V2 stages, each with a
 right-aligned status chip — a **✓ checkmark** when the stage is complete, a dot when it
 isn't — so you can see at a glance where you are. Every button also raises Blender's usual
 info/error toast, and the bottom status line keeps the last message.
@@ -144,7 +147,12 @@ info/error toast, and the bottom status line keeps the last message.
 - Interchange box: light JSON import/export with an Export Coords selector
   (`right_handed_y_up` for ComfyUI, `blender_z_up` for no conversion). Import converts
   from the file's declared coordinate system into Blender's automatically.
-- Status: last operator result or error.
+- Status: last operator result or error. Failed worker runs expose a **Details…**
+  disclosure backed by the stage's machine-readable report JSON and worker traceback.
+
+The 3D Viewport's `NRP` sidebar contains the **NRP Lights** gaffer list. It supports
+inline rename, selection sync, add/duplicate/delete, color, linear/EV intensity,
+kelvin/tint, enable/solo/mute gather masks, and per-parameter Match Reference locks.
 
 ## Quick Tutorial: Bake, Train, And Relight
 
@@ -178,14 +186,16 @@ as the starting image contract and provide an authorized SSH key through the ima
 or a mounted secret.
 
 The add-on reconciles persisted jobs once at startup and exposes **Reconcile Jobs**
-for a manual refresh. Active work stays in the queue; completed work is removed;
-missing backend configuration is surfaced as an orphaned/failed status instead of
-being silently forgotten.
+for a manual refresh. Active and completed-but-unfetched work stays visible with
+**Fetch & Stop** and **Cancel** actions. Fetching a completed RunPod job downloads its
+artifacts and terminates the pod; missing backend configuration is surfaced instead
+of silently forgetting a potentially billing worker.
 
 For reference matching, use **Match Reference** in Advanced. It writes
 `match_reference_before.png`, `match_reference_after.png`, a center-wipe
 `match_reference_wipe.png`, and a pending solved rig; the scene is unchanged until
-**Apply**. **Discard** removes the pending result.
+**Apply**. **Review Wipe** loads `NRP Match Reference Wipe` into any open Image Editor;
+**Discard** removes the pending result.
 
 This is the canonical manual test sequence. Follow it in order to confirm the whole
 pipeline is wired correctly.
@@ -300,7 +310,34 @@ implementations (`nrp`'s `PathCache.load`/`gather_light`/`TorchNRP.load`, ComfyU
 
 ```bash
 python scripts/cross_repo_roundtrip.py   # expects ../nrp and ../ComfyUI-NeuralRenderProxy
+python scripts/cross_repo_roundtrip.py --artifact-dir build/my_worker/scene_id
 ```
+
+The second form verifies the exact `path_cache.npz` and `metadata.json` emitted by a
+headless worker rather than creating another in-process fixture.
+
+## Worker Container
+
+Build the headless Blender + torch worker with an official Linux x64 Blender tarball,
+then run the fixture smoke inside it:
+
+```bash
+docker build --build-arg BLENDER_URL="$BLENDER_URL" -f Dockerfile.worker -t blender-nrp-worker:smoke .
+scripts/container_smoke.sh blender-nrp-worker:smoke
+```
+
+On a CPU-only smoke runner, add `--build-arg BASE_IMAGE=ubuntu:22.04` and
+`--build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu`. These are test
+overrides; the Dockerfile's production default remains NVIDIA's CUDA runtime.
+
+If a constrained runner cannot install torch, `--build-arg INSTALL_TORCH=0` plus
+`scripts/container_smoke.sh blender-nrp-worker:smoke python` verifies the image,
+Blender worker, Python tracer, and artifact validator. It is explicitly a reduced
+analytic smoke and does not count as the torch-mesh container gate.
+
+The image installs the torch extra into Blender's Python and exposes that compatible
+interpreter as `nrp-python` for training/solving as well as mesh tracing. The manual `Worker image` GitHub Actions
+workflow runs the same smoke before optionally publishing the verified image to GHCR.
 
 ## Blender Background Mode
 

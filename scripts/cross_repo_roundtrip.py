@@ -24,10 +24,12 @@ without failing when torch is absent).
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -51,7 +53,17 @@ def _fail(message: str) -> None:
     raise SystemExit(1)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        help=(
+            "Use path_cache.npz and metadata.json produced by a worker job instead "
+            "of baking an in-process fixture"
+        ),
+    )
+    args = parser.parse_args(argv)
     from blender_nrp.backends import cycles_capture
     from blender_nrp.backends.interface import BakeSettings
     from blender_nrp.core.comfy_export import export_comfy_bundle
@@ -61,23 +73,37 @@ def main() -> int:
     from blender_nrp.core.metadata import NRPMetadata
     from blender_nrp.core.path_cache import load_arrays, save_arrays
 
-    out_dir = ROOT / "build" / "cross_repo"
-    settings = BakeSettings(
-        scene_id="roundtrip",
-        output_dir=out_dir,
-        width=24,
-        height=20,
-        segment_count=1,
-        max_segment_distance=100.0,
-        paths_per_pixel=16,
-        max_bounces=4,
-        seed=3,
-    )
-    result = cycles_capture.bake(None, settings)
+    if args.artifact_dir is not None:
+        artifact_dir = args.artifact_dir.resolve()
+        cache_path = artifact_dir / "path_cache.npz"
+        metadata_path = artifact_dir / "metadata.json"
+        if not cache_path.exists() or not metadata_path.exists():
+            _fail(f"worker artifact directory is incomplete: {artifact_dir}")
+        result = SimpleNamespace(
+            cache_path=cache_path,
+            metadata_path=metadata_path,
+            output_dir=artifact_dir,
+        )
+        print(f"using worker-produced fixture cache: {cache_path}")
+    else:
+        out_dir = ROOT / "build" / "cross_repo"
+        settings = BakeSettings(
+            scene_id="roundtrip",
+            output_dir=out_dir,
+            width=24,
+            height=20,
+            segment_count=1,
+            max_segment_distance=100.0,
+            paths_per_pixel=16,
+            max_bounces=4,
+            seed=3,
+        )
+        result = cycles_capture.bake(None, settings)
+        print(f"baked fixture cache: {result.cache_path}")
     arrays = load_arrays(result.cache_path).arrays
     packed_path = result.output_dir / "path_cache_packed.npz"
-    save_arrays(packed_path, arrays, width=settings.width, height=settings.height, packed=True)
-    print(f"baked fixture cache: {result.cache_path}")
+    height, width = arrays["albedo"].shape[:2]
+    save_arrays(packed_path, arrays, width=width, height=height, packed=True)
 
     sphere = SphereLight(
         position=(0.1, -0.2, 1.4), radius=0.45, color=(2.0, 1.0, 0.5), intensity=1.5

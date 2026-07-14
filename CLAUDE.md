@@ -5,10 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `Blender-NRP` is a Blender add-on for baking Neural Render Proxy (NRP) path caches and relighting
-fixed-camera scenes inside Blender. V2 (current) targets parity with the sibling `nrp` reference:
+fixed-camera scenes inside Blender. V3 (`0.4.0`) retains parity with the sibling `nrp` reference:
 real multi-bounce path capture with Cycles G-buffer passes, genuine PyTorch proxy training,
 gradient-based inverse light optimization, sphere + quad lights, packed caches, coordinate
-conversion on interchange, and a live in-Blender preview — still correctness-first, not real-time.
+conversion on interchange, and a live in-Blender preview. It adds versioned headless jobs,
+local/SSH/RunPod execution, torch mesh tracing, a one-button pipeline, durable reconciliation,
+and a lighter-facing gaffer/Match Reference workflow — still correctness-first, not real-time.
 
 Build goals/specs live in `docs/prompts/blender-path-cache-bake-plugin-goal-prompt.md` (V1) and
 `docs/prompts/blender-nrp-v2-goal-prompt.md` (V2). User-facing docs are in `docs/USER_GUIDE.md`.
@@ -36,10 +38,12 @@ python scripts/validate_light_json.py build/nrp/fixture_room_001/solved_lights.j
 
 Cross-repo round-trip (verification tier 2 — loads baked artifacts with the *actual* sibling
 implementations; expects `../nrp` and `../ComfyUI-NeuralRenderProxy`, override via NRP_REPO /
-COMFY_REPO; torch-dependent checks SKIP cleanly):
+COMFY_REPO; torch-dependent checks SKIP cleanly). Pass `--artifact-dir` to verify the exact output
+of `run_bake_job.py` instead of creating another fixture:
 
 ```bash
 python scripts/cross_repo_roundtrip.py
+python scripts/cross_repo_roundtrip.py --artifact-dir build/worker/scene_id
 ```
 
 When Blender is available, run the fixture scripts against the committed Cornell-style scene:
@@ -49,13 +53,22 @@ blender --background tests/fixtures/minimal_scene.blend --python scripts/bake_fi
 blender --background tests/fixtures/minimal_scene.blend --python scripts/relight_fixture.py
 ```
 
-Full Blender operator smoke test (registers the add-on, runs the whole V2 operator chain —
-both backends, torch-or-degrade training, quad lights, coordinate round-trip, solver, preview
-datablock — checks artifacts under `build/blender_smoke/`):
+Full Blender operator smoke test (registers the add-on, runs the granular V2 operator chain and
+the V3 one-button local-subprocess chain, including auto-validation/load/starter light/preview):
 
 ```bash
 blender --background --factory-startup --python-exit-code 7 --python tests/blender_smoke.py
 ```
+
+Worker-container smoke (requires a built image and Docker daemon):
+
+```bash
+scripts/container_smoke.sh blender-nrp-worker:smoke
+```
+
+`INSTALL_TORCH=0` with `scripts/container_smoke.sh blender-nrp-worker:smoke python`
+is a reduced analytic image check for constrained runners; it does not replace the
+default torch-mesh container gate.
 
 ## Architecture
 
@@ -78,7 +91,9 @@ blender_nrp/
                       the multi-bounce Monte Carlo tracer behind cycles_capture
                       (path_tracer.py, RayCaster Protocol + AnalyticRoomCaster test scene),
                       object<->light mapping (light_objects.py, duck-typed), no-torch
-                      solver (optimize_fallback.py), validation, reports
+                      solver (optimize_fallback.py), validation, reports; versioned jobs,
+                      durable execution queue, local/SSH/RunPod adapters, cost/staleness/presets,
+                      and torch analytic/triangle-BVH tracing
   core/torch_proxy/   optional-dep torch stack, nrp torch_backend parity: encoding.py
                       (hashgrid), model.py (TorchNRP — save format byte-compatible with
                       nrp's, keep it that way), gather.py (batched device gather),
@@ -93,7 +108,8 @@ blender_nrp/
   operators/          bpy.types.Operator classes — thin orchestration only; real logic in
                       core/. bake_cache is modal (Esc cancels; synchronous in background
                       mode). train_proxy runs a worker thread + bpy.app.timers polling
-                      (worker touches numpy/torch only; all bpy access on the main thread).
+                      (worker touches numpy/torch only; all bpy access on the main thread), plus
+                      one-button orchestration, restart reconciliation, snapshots, and Match Reference.
                       _helpers.py reports onto scene.blender_nrp.status.
   preview.py          live relight preview: Image datablock ("NRP Relight Preview") updated
                       in place, debounced depsgraph_update_post handler gated by the
@@ -149,4 +165,5 @@ Changing these shapes breaks interop with the sibling projects — treat them as
   `cycles_capture.py` — test against both when touching that code.
 - Four validation tiers: pure-Python pytest (`core/` + torch importorskip), the cross-repo
   round-trip script, Blender background fixture scripts + blender_smoke.py, and manual Blender UI
-  checks (modal bake progress/cancel, live preview while dragging lights, solver write-back).
+  checks (one-button cancel/restart reconciliation, live gaffer masks/snapshots, Match Reference).
+  The worker-container smoke is an additional CI-optional gate.

@@ -27,7 +27,7 @@ if bpy is not None:
     class BlenderNRPSettings(bpy.types.PropertyGroup):
         scene_id: bpy.props.StringProperty(
             name="Scene ID",
-            default="fixture_room_001",
+            default="",
             description="Stable ID used in NRP cache metadata and light JSON",
         )
         output_dir: bpy.props.StringProperty(
@@ -97,6 +97,9 @@ if bpy is not None:
             default="auto",
         )
         show_advanced: bpy.props.BoolProperty(name="Advanced", default=False)
+        show_details: bpy.props.BoolProperty(name="Details…", default=False)
+        last_report_path: bpy.props.StringProperty(name="Last Report", default="")
+        last_error_details: bpy.props.StringProperty(name="Last Error Details", default="")
         pipeline_settings_hash: bpy.props.StringProperty(name="Pipeline Settings Hash", default="")
         pipeline_scene_hash: bpy.props.StringProperty(name="Pipeline Scene Hash", default="")
         snapshot_name: bpy.props.StringProperty(name="Snapshot", default="Look 01")
