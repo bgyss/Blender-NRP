@@ -39,6 +39,12 @@ def run_worker(description: str, execute) -> int:
                 status_path, JobProgress(job_id, "running", fraction, stage, message)
             ),
         )
+        returned_names = {Path(path).name for path in artifacts.values()}
+        missing = sorted(set(job.output_manifest) - returned_names)
+        if missing:
+            raise RuntimeError(
+                f"worker completed without required artifacts: {', '.join(missing)}"
+            )
         write_progress(
             status_path,
             JobProgress(

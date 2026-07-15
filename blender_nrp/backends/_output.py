@@ -76,6 +76,7 @@ def write_bake_outputs(
         "segment_count": validation.segment_count,
         "warnings": list(warnings),
         "validation_errors": list(validation.errors),
+        "limitations": list(approximation_limits),
         "approximation_limits": list(approximation_limits),
     }
     if blender_file_name:

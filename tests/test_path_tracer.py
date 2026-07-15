@@ -67,6 +67,7 @@ def test_analytic_capture_writes_escape_segments_and_valid_cache(tmp_path):
     assert report["escape_segments"] > 0
     assert report["throughput_normalization"] == "n_paths"
     assert report["approximation_limits"]
+    assert "limitations" in report
     validation = validate_npz(result.cache_path)
     assert validation.ok, validation.errors
     arrays = load_arrays(result.cache_path).arrays

@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -42,7 +43,14 @@ def test_bake_job_round_trip_and_version_gate(tmp_path):
     "job",
     [
         TrainJob("cache.npz", "out", iterations=3, torch_device="cpu"),
-        SolveJob("cache.npz", "lights.json", "target.npy", "out", steps=4),
+        SolveJob(
+            "cache.npz",
+            "lights.json",
+            "target.npy",
+            "out",
+            steps=4,
+            locks=(("intensity",), ("position", "color")),
+        ),
     ],
 )
 def test_train_and_solve_job_round_trip(tmp_path, job):
@@ -59,11 +67,12 @@ def test_failed_worker_writes_honest_machine_readable_report(tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/run_train_job.py",
+            str(Path(__file__).parents[1] / "scripts" / "run_train_job.py"),
             str(job_path),
             "--status",
             str(status_path),
         ],
+        cwd=tmp_path,
         check=False,
         capture_output=True,
         text=True,

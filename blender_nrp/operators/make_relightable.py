@@ -311,6 +311,21 @@ if bpy is not None:
                 backend = LocalSubprocessBackend(
                     output_dir / ".nrp_jobs", blender_binary=bpy.app.binary_path
                 )
+            if settings.compute != "local_subprocess":
+                # Remote workers receive the saved .blend over rsync. Pack
+                # external images/libraries first so a remote success cannot
+                # silently render a scene with missing local-only assets.
+                packed_result = bpy.ops.file.pack_all()
+                if packed_result != {"FINISHED"}:
+                    return cancel_with_status(
+                        self,
+                        context,
+                        "Could not pack external scene assets for remote compute",
+                    )
+                if bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath) != {"FINISHED"}:
+                    return cancel_with_status(
+                        self, context, "Could not save the packed scene for remote compute"
+                    )
             queue = ExecutionQueue(output_dir / ".nrp_jobs")
             job = BakeJob(
                 settings.scene_id,
@@ -378,6 +393,32 @@ if bpy is not None:
             context.window_manager.progress_begin(0.0, 100.0)
             bpy.app.timers.register(_poll, first_interval=0.1)
             return {"FINISHED"}
+
+        def invoke(self, context: bpy.types.Context, _event: bpy.types.Event) -> set[str]:
+            result = self.execute(context)
+            if result == {"FINISHED"} and _state.get("job_id") is not None:
+                context.window_manager.modal_handler_add(self)
+                return {"RUNNING_MODAL"}
+            return result
+
+        def modal(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
+            if event.type == "ESC" and event.value == "PRESS":
+                if _state.get("backend") is not None and _state.get("job_id") is not None:
+                    try:
+                        _state["backend"].cancel(_state["job_id"])
+                    except Exception as exc:
+                        _finish_chain(
+                            context.scene,
+                            f"Could not cancel Make Scene Relightable: {exc}",
+                            is_error=True,
+                            remove_queue=False,
+                        )
+                        return {"CANCELLED"}
+                    _finish_chain(context.scene, "Make Scene Relightable cancelled")
+                return {"CANCELLED"}
+            if _state.get("job_id") is None:
+                return {"FINISHED"}
+            return {"PASS_THROUGH"}
 
     class BLENDER_NRP_OT_cancel_make_relightable(bpy.types.Operator):
         bl_idname = "blender_nrp.cancel_make_relightable"

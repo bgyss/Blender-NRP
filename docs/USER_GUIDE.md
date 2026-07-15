@@ -164,6 +164,8 @@ the configured output directory, runs the bake in a background Blender process,
 validates its cache, then trains and loads the proxy before making a starter light
 and preview. Use **Cancel** to stop the currently submitted local worker. The
 **Advanced** disclosure retains the individual V2 stages and their full settings.
+While the one-button operator is active, either its X control or the Esc key cancels
+the submitted worker.
 
 V3's local worker scripts also support unattended processing:
 
@@ -185,6 +187,10 @@ the same bundle through the pod's SSH port. Build [Dockerfile.worker](../Dockerf
 as the starting image contract and provide an authorized SSH key through the image
 or a mounted secret.
 
+Before a remote submission, the operator packs external scene assets into the saved
+`.blend` so the worker receives a self-contained scene rather than references to
+files that exist only on the artist workstation.
+
 The add-on reconciles persisted jobs once at startup and exposes **Reconcile Jobs**
 for a manual refresh. Active and completed-but-unfetched work stays visible with
 **Fetch & Stop** and **Cancel** actions. Fetching a completed RunPod job downloads its
@@ -195,7 +201,9 @@ For reference matching, use **Match Reference** in Advanced. It writes
 `match_reference_before.png`, `match_reference_after.png`, a center-wipe
 `match_reference_wipe.png`, and a pending solved rig; the scene is unchanged until
 **Apply**. **Review Wipe** loads `NRP Match Reference Wipe` into any open Image Editor;
-**Discard** removes the pending result.
+**Discard** removes the pending result. The solve is an asynchronous versioned
+`solve_job.json` on the selected Compute rail, so the Blender UI remains responsive;
+the same persisted queue supports cancellation and restart reconciliation.
 
 This is the canonical manual test sequence. Follow it in order to confirm the whole
 pipeline is wired correctly.

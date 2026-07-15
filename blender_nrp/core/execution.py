@@ -119,10 +119,19 @@ class ExecutionQueue:
 class LocalSubprocessBackend:
     """Worker runner with durable job/progress files and explicit cancellation."""
 
-    def __init__(self, queue_dir: str | Path, *, blender_binary: str | None = None):
+    id = "local"
+
+    def __init__(
+        self,
+        queue_dir: str | Path,
+        *,
+        blender_binary: str | None = None,
+        python_binary: str | None = None,
+    ):
         self.queue_dir = Path(queue_dir)
         self.queue_dir.mkdir(parents=True, exist_ok=True)
         self.blender_binary = blender_binary
+        self.python_binary = python_binary or sys.executable
         self._processes: dict[str, subprocess.Popen] = {}
 
     def _paths(self, job_id: str) -> tuple[Path, Path]:
@@ -137,7 +146,7 @@ class LocalSubprocessBackend:
         job_path, status_path = self._paths(job_id)
         write_job(job_path, job)
         script = Path(__file__).resolve().parents[2] / "scripts" / f"run_{job.kind}_job.py"
-        command = [sys.executable, str(script), str(job_path), "--status", str(status_path)]
+        command = [self.python_binary, str(script), str(job_path), "--status", str(status_path)]
         # Blender's embedded interpreter is the only reliable local Python from an
         # add-on process. Worker scripts remain plain-Python compatible for CI and
         # remote hosts, but use Blender when the caller supplies its executable.
@@ -147,6 +156,13 @@ class LocalSubprocessBackend:
                 command.append(job.scene_path)
             else:
                 command.append("--factory-startup")
+            # Blender builds may ignore PYTHONPATH, so explicitly carry the
+            # initiating add-on/runtime paths into the child interpreter.
+            for python_path in dict.fromkeys(path for path in sys.path if path):
+                command += [
+                    "--python-expr",
+                    f"import sys; sys.path.insert(0, {python_path!r})",
+                ]
             command += ["--python", str(script), "--", str(job_path), "--status", str(status_path)]
         process = subprocess.Popen(command, start_new_session=True)
         self._processes[job_id] = process
@@ -293,6 +309,10 @@ class SshExecutionBackend:
                     (job.target_path, remote_target),
                 ]
             )
+            if job.model_path:
+                remote_model = f"{remote_dir}/{Path(job.model_path).name}"
+                replacement["model_path"] = remote_model
+                staged.append((job.model_path, remote_model))
         remote_job = dataclass_replace(job, **replacement)
         write_job(job_path, remote_job)
         self.runner(self._ssh("mkdir", "-p", remote_dir, remote_output))

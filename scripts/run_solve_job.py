@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 import numpy as np
 from _job_worker import run_worker
@@ -22,7 +27,41 @@ def execute(job: SolveJob, progress) -> dict[str, Path]:
     arrays = load_arrays(job.cache_path).arrays
     rig = LightRig.load(job.lights_path)
     target = np.load(job.target_path)
-    report = optimize_lights_fallback(arrays, rig.lights, target, sweeps=max(1, job.steps // 75))
+    locks = job.locks or tuple(() for _ in rig.lights)
+    report = None
+    if job.model_path:
+        try:
+            from blender_nrp.core.torch_proxy.model import TorchNRP
+            from blender_nrp.core.torch_proxy.optimize import optimize_lights
+
+            model = TorchNRP.load(job.model_path)
+            if {light.light_type for light in rig.lights} == {model.light_type}:
+                report = optimize_lights(
+                    model,
+                    arrays,
+                    rig.lights,
+                    target,
+                    steps=job.steps,
+                    device=job.torch_device,
+                    locks=locks,
+                )
+        except Exception as exc:
+            # Preserve a useful fallback report when an optional model/runtime
+            # is unavailable on a remote worker.
+            report = None
+            model_error = str(exc)
+        else:
+            model_error = None
+    else:
+        model_error = None
+    if report is None:
+        report = optimize_lights_fallback(
+            arrays, rig.lights, target, locks=locks, sweeps=max(1, job.steps // 75)
+        )
+        if model_error:
+            report.setdefault("limitations", []).append(
+                f"Gradient proxy solver unavailable; used coordinate descent: {model_error}"
+            )
     output_dir = Path(job.output_dir)
     solved_path = output_dir / "solved_lights.json"
     solved_lights = tuple(light_from_dict(item) for item in report["optimized_lights"])

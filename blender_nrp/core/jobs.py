@@ -83,6 +83,8 @@ class SolveJob:
     output_dir: str
     steps: int = 300
     torch_device: str = "auto"
+    model_path: str | None = None
+    locks: tuple[tuple[str, ...], ...] = ()
     output_manifest: tuple[str, ...] = ("solved_lights.json", "solve_report.json")
     kind: Literal["solve"] = "solve"
     schema_version: int = JOB_SCHEMA_VERSION
@@ -94,7 +96,10 @@ class SolveJob:
             raise ValueError("unsupported solve job or non-positive steps")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self) | {"output_manifest": list(self.output_manifest)}
+        payload = asdict(self)
+        payload["output_manifest"] = list(self.output_manifest)
+        payload["locks"] = [list(fields) for fields in self.locks]
+        return payload
 
 
 Job = BakeJob | TrainJob | SolveJob
@@ -106,6 +111,8 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
         raise ValueError(f"unsupported job schema version: {version}")
     values = dict(payload)
     values["output_manifest"] = tuple(values.get("output_manifest", ()))
+    if "locks" in values:
+        values["locks"] = tuple(tuple(fields) for fields in values["locks"])
     kind = values.get("kind")
     if kind == "bake":
         return BakeJob(**values)

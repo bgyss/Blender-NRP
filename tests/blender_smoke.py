@@ -258,6 +258,28 @@ def run() -> None:
         ] == solve_report["gather_mse_vs_target_initial"]:
             print("NOTE: solver made no change (already at optimum?)")
 
+        # V3 Match Reference uses the same durable SolveJob rails and remains
+        # asynchronous while its before/after review assets are produced.
+        from blender_nrp.operators import match_reference
+
+        settings.match_pending_path = ""
+        assert_finished(bpy.ops.blender_nrp.match_reference(), "Match Reference submit")
+        if bpy.app.timers.is_registered(match_reference._match_poll):
+            bpy.app.timers.unregister(match_reference._match_poll)
+        deadline = time.monotonic() + 120.0
+        while match_reference._match_state.get("job_id") is not None:
+            match_reference._match_poll()
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Match Reference timed out: {settings.status}")
+            time.sleep(0.1)
+        if not settings.match_pending_path:
+            raise AssertionError(
+                f"Match Reference did not produce a pending review: {settings.status}"
+            )
+        assert_finished(
+            bpy.ops.blender_nrp.discard_match_reference(), "Discard Match Reference"
+        )
+
         # --- V3 one-button local-subprocess chain.
         # This is intentionally last: it saves the scene, then launches a second
         # background Blender for baking and training through the public operator.

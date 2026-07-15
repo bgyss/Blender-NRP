@@ -14,7 +14,8 @@ contracts and correctness-first approach:
 - train a real PyTorch neural proxy in the background (cosine LR, checkpoint/resume, MPS/CUDA) writing an `nrp`-loadable `model.pt`,
 - create and edit NRP sphere *and quad* lights as Blender objects,
 - preview fixed-camera relighting live inside Blender (Image datablock, debounced auto-update) via the proxy or the exact cache gather,
-- solve a light rig against a target image with gradients through the proxy (coordinate-descent fallback without torch),
+- solve a light rig against a target image through the asynchronous Compute rail,
+  with gradients through the proxy or coordinate-descent fallback without torch,
 - import and export ComfyUI-compatible light rigs with real coordinate conversion.
 - submit versioned bake/train/solve jobs to a local background worker, with durable
   progress files ready for LAN and cloud adapters,

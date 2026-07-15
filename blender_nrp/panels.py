@@ -233,6 +233,10 @@ if bpy is not None:
             row.operator(
                 "blender_nrp.match_reference", text="Match Reference", icon="IMAGE_REFERENCE"
             )
+            if settings.status.startswith("Match Reference") and not settings.match_pending_path:
+                row.operator(
+                    "blender_nrp.cancel_match_reference", text="", icon="CANCEL"
+                )
             if settings.match_pending_path:
                 sub.operator(
                     "blender_nrp.review_match_reference", text="Review Wipe", icon="IMAGE_DATA"
